@@ -3,7 +3,11 @@ services:
     name: vpn-sentinel
     runtime: python
     buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn app:app
+    startCommand: gunicorn app:app --workers 1 --threads 8
     envVars:
       - key: VPNAPI_KEY
+        sync: false
+      - key: IPHUB_KEY
+        sync: false
+      - key: IPGEO_KEY
         sync: false

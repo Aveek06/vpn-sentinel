@@ -9,16 +9,21 @@ import requests
 app = Flask(__name__)
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-API_KEY = os.environ.get('VPNAPI_KEY')
-if not API_KEY:
-    raise RuntimeError('VPNAPI_KEY environment variable is not set')
-
 limiter = Limiter(
     get_remote_address,
     app=app,
     default_limits=[],
     storage_uri="memory://",
 )
+
+KEYS = {
+    'vpnapi': os.environ.get('VPNAPI_KEY'),
+    'iphub':  os.environ.get('IPHUB_KEY'),
+    'ipgeo':  os.environ.get('IPGEO_KEY'),
+}
+
+# Tracks providers that have hit their daily quota (resets on server restart)
+exhausted: set[str] = set()
 
 _IPV4_RE = re.compile(r'^(\d{1,3}\.){3}\d{1,3}$')
 _IPV6_RE = re.compile(r'^[0-9a-fA-F:]+$')
@@ -27,44 +32,154 @@ def is_valid_ip(value):
     if not isinstance(value, str):
         return False
     if _IPV4_RE.match(value):
-        parts = value.split('.')
-        return all(0 <= int(p) <= 255 for p in parts)
-    if _IPV6_RE.match(value) and ':' in value:
-        return True
-    return False
+        return all(0 <= int(p) <= 255 for p in value.split('.'))
+    return bool(_IPV6_RE.match(value) and ':' in value)
+
+
+# ── Response parsers (normalize each provider to the same shape) ──────────────
+
+def parse_vpnapi(ip, d):
+    sec = d.get('security', {})
+    loc = d.get('location', {})
+    net = d.get('network', {})
+    return {
+        'ip': ip, 'error': None,
+        'vpn':   bool(sec.get('vpn')),
+        'proxy': bool(sec.get('proxy')),
+        'tor':   bool(sec.get('tor')),
+        'relay': bool(sec.get('relay')),
+        'country': loc.get('country', '—'),
+        'city':    loc.get('city', '—'),
+        'isp':     net.get('autonomous_system_organization', '—'),
+        'source':  'vpnapi.io',
+    }
+
+def parse_iphub(ip, d):
+    # block: 0 = clean, 1 = VPN/proxy, 2 = hosting (not necessarily bad)
+    block = d.get('block', 0)
+    return {
+        'ip': ip, 'error': None,
+        'vpn':   block == 1,
+        'proxy': block == 1,
+        'tor':   False,
+        'relay': False,
+        'country': d.get('countryCode', '—'),
+        'city':    '—',
+        'isp':     d.get('isp', '—'),
+        'source':  'IPHub',
+    }
+
+def parse_ipgeo(ip, d):
+    sec = d.get('security', {})
+    return {
+        'ip': ip, 'error': None,
+        'vpn':   bool(sec.get('is_vpn')),
+        'proxy': bool(sec.get('is_proxy')),
+        'tor':   bool(sec.get('is_tor')),
+        'relay': False,
+        'country': d.get('country_name', '—'),
+        'city':    d.get('city', '—'),
+        'isp':     d.get('isp', '—'),
+        'source':  'IPGeolocation',
+    }
+
+def parse_iplogs(ip, d):
+    signals = d.get('signals', {})
+    verdict = d.get('verdict', '')
+    return {
+        'ip': ip, 'error': None,
+        'vpn':   bool(signals.get('vpn'))   or verdict == 'vpn',
+        'proxy': bool(signals.get('proxy')) or verdict == 'proxy',
+        'tor':   bool(signals.get('tor'))   or verdict == 'tor',
+        'relay': False,
+        'country': d.get('country', '—'),
+        'city':    d.get('city', '—'),
+        'isp':     d.get('isp', '—'),
+        'source':  'IPLogs',
+    }
+
+
+# ── Provider definitions ──────────────────────────────────────────────────────
+
+PROVIDERS = [
+    {
+        'name': 'vpnapi',
+        'enabled': lambda: bool(KEYS['vpnapi']),
+        'call': lambda ip: requests.get(
+            f'https://vpnapi.io/api/{ip}?key={KEYS["vpnapi"]}',
+            timeout=10
+        ),
+        'parse': parse_vpnapi,
+        'quota_status': {429},
+        'quota_keywords': {'limit', 'quota'},
+    },
+    {
+        'name': 'iphub',
+        'enabled': lambda: bool(KEYS['iphub']),
+        'call': lambda ip: requests.get(
+            f'https://v2.api.iphub.info/ip/{ip}',
+            headers={'X-Key': KEYS['iphub']},
+            timeout=10
+        ),
+        'parse': parse_iphub,
+        'quota_status': {429, 401},
+        'quota_keywords': {'limit', 'quota', 'exceeded'},
+    },
+    {
+        'name': 'ipgeo',
+        'enabled': lambda: bool(KEYS['ipgeo']),
+        'call': lambda ip: requests.get(
+            f'https://api.ipgeolocation.io/ipgeo?apiKey={KEYS["ipgeo"]}&ip={ip}&include=security',
+            timeout=10
+        ),
+        'parse': parse_ipgeo,
+        'quota_status': {423, 429},
+        'quota_keywords': {'limit', 'quota', 'exceeded'},
+    },
+    {
+        'name': 'iplogs',
+        'enabled': lambda: True,   # no key required
+        'call': lambda ip: requests.post(
+            'https://iplogs.com/v1/check',
+            json={'ip': ip},
+            timeout=10
+        ),
+        'parse': parse_iplogs,
+        'quota_status': {429},
+        'quota_keywords': {'limit'},
+    },
+]
 
 
 def fetch_one(ip):
-    try:
-        r = requests.get(
-            f'https://vpnapi.io/api/{ip}?key={API_KEY}',
-            timeout=10
-        )
-        if not r.ok:
-            body = r.json() if r.content else {}
-            return {'ip': ip, 'error': body.get('message', f'HTTP {r.status_code}'),
-                    'vpn': False, 'proxy': False, 'tor': False, 'relay': False,
-                    'country': '—', 'city': '—', 'isp': '—'}
-        d = r.json()
-        sec = d.get('security', {})
-        loc = d.get('location', {})
-        net = d.get('network', {})
-        return {
-            'ip':    ip,
-            'vpn':   bool(sec.get('vpn')),
-            'proxy': bool(sec.get('proxy')),
-            'tor':   bool(sec.get('tor')),
-            'relay': bool(sec.get('relay')),
-            'country': loc.get('country', '—'),
-            'city':    loc.get('city', '—'),
-            'isp':     net.get('autonomous_system_organization', '—'),
-            'error': None,
-        }
-    except requests.RequestException:
-        return {'ip': ip, 'error': 'Failed to reach vpnapi.io', 'vpn': False,
-                'proxy': False, 'tor': False, 'relay': False,
-                'country': '—', 'city': '—', 'isp': '—'}
+    for p in PROVIDERS:
+        name = p['name']
+        if name in exhausted or not p['enabled']():
+            continue
+        try:
+            r = p['call'](ip)
+            if r.status_code in p['quota_status']:
+                exhausted.add(name)
+                continue
+            if not r.ok:
+                body = r.json() if r.content else {}
+                msg = (body.get('message') or body.get('error') or '').lower()
+                if any(kw in msg for kw in p['quota_keywords']):
+                    exhausted.add(name)
+                    continue
+                continue   # non-quota error, try next provider
+            return p['parse'](ip, r.json())
+        except requests.RequestException:
+            continue       # network error, try next provider
 
+    return {
+        'ip': ip, 'error': 'All providers unavailable or quota exhausted',
+        'vpn': False, 'proxy': False, 'tor': False, 'relay': False,
+        'country': '—', 'city': '—', 'isp': '—', 'source': '—',
+    }
+
+
+# ── Routes ────────────────────────────────────────────────────────────────────
 
 @app.route('/')
 def index():
@@ -72,8 +187,8 @@ def index():
 
 
 @app.route('/api/check', methods=['POST'])
-@limiter.limit("20 per minute")  # burst cap: max 200 IPs/min per user (20 × 10 IPs)
-@limiter.limit("100 per day")    # daily cap: max 1000 IPs/day per user (100 × 10 IPs)
+@limiter.limit("20 per minute")
+@limiter.limit("100 per day")
 def check_ips():
     data = request.get_json(force=True, silent=True) or {}
     raw_ips = data.get('ips', [])
@@ -81,8 +196,7 @@ def check_ips():
     if not isinstance(raw_ips, list) or not raw_ips:
         return jsonify({'error': 'Provide a non-empty list of IPs'}), 400
 
-    # Validate, deduplicate, cap
-    seen = set()
+    seen: set[str] = set()
     ips = []
     for ip in raw_ips[:100]:
         if not is_valid_ip(ip) or ip in seen:
@@ -94,7 +208,7 @@ def check_ips():
         return jsonify({'error': 'No valid IPs provided'}), 400
 
     order = {ip: i for i, ip in enumerate(ips)}
-    results = [None] * len(ips)
+    results: list = [None] * len(ips)
 
     with ThreadPoolExecutor(max_workers=10) as ex:
         futures = {ex.submit(fetch_one, ip): ip for ip in ips}
@@ -107,4 +221,4 @@ def check_ips():
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
-    app.run(host='0.0.0.0', port=port)  # nosec B104 — required for Render
+    app.run(host='0.0.0.0', port=port)  # nosec B104

@@ -513,6 +513,7 @@
           <td>${esc(r.country)}</td>
           <td>${esc(r.city)}</td>
           <td style="max-width:220px;word-break:break-word">${esc(r.isp)}</td>
+          <td style="opacity:0.55;font-size:0.65rem">${esc(r.source || '—')}</td>
         </tr>`).join('');
 
       document.getElementById('results-area').innerHTML = `
@@ -525,6 +526,7 @@
                 <th>Country</th>
                 <th>City</th>
                 <th>ISP / ASN</th>
+                <th>Source</th>
               </tr>
             </thead>
             <tbody>${tbody}</tbody>
