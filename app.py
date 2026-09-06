@@ -16,7 +16,7 @@ if not API_KEY:
 limiter = Limiter(
     get_remote_address,
     app=app,
-    default_limits=["200 per day", "50 per hour"],
+    default_limits=[],
     storage_uri="memory://",
 )
 
@@ -72,7 +72,8 @@ def index():
 
 
 @app.route('/api/check', methods=['POST'])
-@limiter.limit("30 per minute")
+@limiter.limit("5 per minute")   # burst cap: max 50 IPs/min per user
+@limiter.limit("20 per day")     # daily cap: max 200 IPs/day per user (20 × 10 IPs)
 def check_ips():
     data = request.get_json(force=True, silent=True) or {}
     raw_ips = data.get('ips', [])
