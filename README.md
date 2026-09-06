@@ -12,13 +12,14 @@ Uses **four providers with automatic fallback** — when one hits its daily quot
 |---|---|---|---|
 | 1st | [vpnapi.io](https://vpnapi.io) | 1,000 req/day | VPN, Proxy, Tor, Relay |
 | 2nd | [IPHub](https://iphub.info) | 1,000 req/day | Proxy (non-residential IPs) |
-| 3rd | [IPLogs](https://iplogs.com) | Fair use (no key) | VPN, Proxy, Tor |
+| 3rd | [proxycheck.io](https://proxycheck.io) | 1,000 req/day | VPN, Proxy, Tor |
+| 4th | [IPLogs](https://iplogs.com) | Fair use (no key) | VPN, Proxy, Tor |
 
-**Total free capacity: ~2,000+ IP checks/day with IPLogs as unlimited fallback**
+**Total free capacity: ~3,000+ IP checks/day with IPLogs as unlimited fallback**
 
 When a provider exhausts its daily quota, the app automatically falls back to the next one — no restart or config change needed. IPLogs serves as an unlimited safety net.
 
-> **Note on IPHub:** IPGeolocation was removed — the security API requires a paid plan. IPHub's detection flags non-residential IPs as proxy (block=1), which can include legitimate datacenter IPs. Results from IPHub are best treated as a secondary signal.
+> **Note on IPHub:** IPHub flags non-residential IPs as proxy (block=1), which can include legitimate datacenter IPs. Results from IPHub are best treated as a secondary signal.
 
 ---
 
@@ -61,12 +62,12 @@ pip install -r requirements.txt
 # Windows
 set VPNAPI_KEY=your_vpnapi_key
 set IPHUB_KEY=your_iphub_key
-set IPGEO_KEY=your_ipgeolocation_key
+set PROXYCHECK_KEY=your_proxycheck_key
 
 # Mac / Linux
 export VPNAPI_KEY=your_vpnapi_key
 export IPHUB_KEY=your_iphub_key
-export IPGEO_KEY=your_ipgeolocation_key
+export PROXYCHECK_KEY=your_proxycheck_key
 ```
 
 > IPLogs requires no key — it is used automatically as the final fallback.
@@ -100,7 +101,7 @@ python vpn_check.py 1.1.1.1 8.8.8.8 104.28.0.1
 5. Add environment variables:
    - `VPNAPI_KEY` — from [vpnapi.io](https://vpnapi.io)
    - `IPHUB_KEY` — from [iphub.info](https://iphub.info)
-   - `IPGEO_KEY` — from [ipgeolocation.io](https://ipgeolocation.io)
+   - `PROXYCHECK_KEY` — from [proxycheck.io](https://proxycheck.io)
 6. Click **Deploy**
 
 > **Note:** The free tier sleeps after 15 min of inactivity. First request after sleep takes ~30 seconds to wake up.

@@ -17,9 +17,9 @@ limiter = Limiter(
 )
 
 KEYS = {
-    'vpnapi': os.environ.get('VPNAPI_KEY'),
-    'iphub':  os.environ.get('IPHUB_KEY'),
-    # IPGeolocation removed — security API requires paid plan
+    'vpnapi':     os.environ.get('VPNAPI_KEY'),
+    'iphub':      os.environ.get('IPHUB_KEY'),
+    'proxycheck': os.environ.get('PROXYCHECK_KEY'),
 }
 
 # Tracks providers that have hit their daily quota (resets on server restart)
@@ -75,6 +75,25 @@ def parse_iphub(ip, d):
     }
 
 
+def parse_proxycheck(ip, d):
+    if d.get('status') != 'ok' or ip not in d:
+        raise ValueError('quota or unexpected response')
+    entry = d[ip]
+    det = entry.get('detections', {})
+    loc = entry.get('location', {})
+    net = entry.get('network', {})
+    return {
+        'ip': ip, 'error': None,
+        'vpn':   bool(det.get('vpn')),
+        'proxy': bool(det.get('proxy')),
+        'tor':   bool(det.get('tor')),
+        'relay': False,
+        'country': loc.get('country', '—'),
+        'city':    loc.get('city', '—'),
+        'isp':     net.get('provider', '—'),
+        'source':  'proxycheck.io',
+    }
+
 def parse_iplogs(ip, d):
     if 'verdict' not in d and 'is_vpn' not in d:
         raise ValueError('quota or unexpected response')
@@ -118,6 +137,17 @@ PROVIDERS = [
         'parse': parse_iphub,
         'quota_status': {429, 401},
         'quota_keywords': {'limit', 'quota', 'exceeded'},
+    },
+    {
+        'name': 'proxycheck',
+        'enabled': lambda: bool(KEYS['proxycheck']),
+        'call': lambda ip: requests.get(
+            f'https://proxycheck.io/v3/{ip}?key={KEYS["proxycheck"]}&vpn=1',
+            timeout=10
+        ),
+        'parse': parse_proxycheck,
+        'quota_status': {429, 403},
+        'quota_keywords': {'limit', 'quota', 'exceeded', 'denied'},
     },
     {
         'name': 'iplogs',

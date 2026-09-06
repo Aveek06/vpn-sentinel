@@ -9,3 +9,5 @@ services:
         sync: false
       - key: IPHUB_KEY
         sync: false
+      - key: PROXYCHECK_KEY
+        sync: false
