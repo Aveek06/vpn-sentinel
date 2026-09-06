@@ -11,13 +11,14 @@ Uses **four providers with automatic fallback** — when one hits its daily quot
 | Priority | Provider | Free Tier | Detects |
 |---|---|---|---|
 | 1st | [vpnapi.io](https://vpnapi.io) | 1,000 req/day | VPN, Proxy, Tor, Relay |
-| 2nd | [IPHub](https://iphub.info) | 1,000 req/day | VPN, Proxy |
-| 3rd | [IPGeolocation](https://ipgeolocation.io/ip-security-api.html) | 1,000 req/day | VPN, Proxy, Tor |
-| 4th | [IPLogs](https://iplogs.com) | Fair use (no key) | VPN, Proxy, Tor |
+| 2nd | [IPHub](https://iphub.info) | 1,000 req/day | Proxy (non-residential IPs) |
+| 3rd | [IPLogs](https://iplogs.com) | Fair use (no key) | VPN, Proxy, Tor |
 
-**Total free capacity: ~3,000+ IP checks/day**
+**Total free capacity: ~2,000+ IP checks/day with IPLogs as unlimited fallback**
 
 When a provider exhausts its daily quota, the app automatically falls back to the next one — no restart or config change needed. IPLogs serves as an unlimited safety net.
+
+> **Note on IPHub:** IPGeolocation was removed — the security API requires a paid plan. IPHub's detection flags non-residential IPs as proxy (block=1), which can include legitimate datacenter IPs. Results from IPHub are best treated as a secondary signal.
 
 ---
 

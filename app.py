@@ -19,7 +19,7 @@ limiter = Limiter(
 KEYS = {
     'vpnapi': os.environ.get('VPNAPI_KEY'),
     'iphub':  os.environ.get('IPHUB_KEY'),
-    'ipgeo':  os.environ.get('IPGEO_KEY'),
+    # IPGeolocation removed — security API requires paid plan
 }
 
 # Tracks providers that have hit their daily quota (resets on server restart)
@@ -59,12 +59,13 @@ def parse_vpnapi(ip, d):
 def parse_iphub(ip, d):
     if 'block' not in d:
         raise ValueError('quota or unexpected response')
-    # block: 0 = clean, 1 = VPN/proxy, 2 = hosting (not necessarily bad)
+    # block=0: residential/clean  block=1: non-residential (proxy/VPN likely)
+    # block=2: datacenter/hosting but NOT a proxy — treat as clean
     block = d.get('block', 0)
     return {
         'ip': ip, 'error': None,
-        'vpn':   block == 1,
-        'proxy': block == 1,
+        'vpn':   False,          # IPHub cannot distinguish VPN from datacenter
+        'proxy': block == 1,     # block=1 = suspected proxy/VPN (non-residential)
         'tor':   False,
         'relay': False,
         'country': d.get('countryCode', '—'),
@@ -73,21 +74,6 @@ def parse_iphub(ip, d):
         'source':  'IPHub',
     }
 
-def parse_ipgeo(ip, d):
-    if 'security' not in d:
-        raise ValueError('quota or unexpected response')
-    sec = d.get('security', {})
-    return {
-        'ip': ip, 'error': None,
-        'vpn':   bool(sec.get('is_vpn')),
-        'proxy': bool(sec.get('is_proxy')),
-        'tor':   bool(sec.get('is_tor')),
-        'relay': False,
-        'country': d.get('country_name', '—'),
-        'city':    d.get('city', '—'),
-        'isp':     d.get('isp', '—'),
-        'source':  'IPGeolocation',
-    }
 
 def parse_iplogs(ip, d):
     if 'verdict' not in d and 'is_vpn' not in d:
@@ -131,17 +117,6 @@ PROVIDERS = [
         ),
         'parse': parse_iphub,
         'quota_status': {429, 401},
-        'quota_keywords': {'limit', 'quota', 'exceeded'},
-    },
-    {
-        'name': 'ipgeo',
-        'enabled': lambda: bool(KEYS['ipgeo']),
-        'call': lambda ip: requests.get(
-            f'https://api.ipgeolocation.io/ipgeo?apiKey={KEYS["ipgeo"]}&ip={ip}&include=security',
-            timeout=10
-        ),
-        'parse': parse_ipgeo,
-        'quota_status': {423, 429},
         'quota_keywords': {'limit', 'quota', 'exceeded'},
     },
     {
