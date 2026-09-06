@@ -1,6 +1,9 @@
 import os
+import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from flask import Flask, jsonify, request, send_from_directory
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 import requests
 
 app = Flask(__name__)
@@ -9,6 +12,26 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 API_KEY = os.environ.get('VPNAPI_KEY')
 if not API_KEY:
     raise RuntimeError('VPNAPI_KEY environment variable is not set')
+
+limiter = Limiter(
+    get_remote_address,
+    app=app,
+    default_limits=["200 per day", "50 per hour"],
+    storage_uri="memory://",
+)
+
+_IPV4_RE = re.compile(r'^(\d{1,3}\.){3}\d{1,3}$')
+_IPV6_RE = re.compile(r'^[0-9a-fA-F:]+$')
+
+def is_valid_ip(value):
+    if not isinstance(value, str):
+        return False
+    if _IPV4_RE.match(value):
+        parts = value.split('.')
+        return all(0 <= int(p) <= 255 for p in parts)
+    if _IPV6_RE.match(value) and ':' in value:
+        return True
+    return False
 
 
 def fetch_one(ip):
@@ -37,9 +60,10 @@ def fetch_one(ip):
             'isp':     net.get('autonomous_system_organization', '—'),
             'error': None,
         }
-    except Exception as e:
-        return {'ip': ip, 'error': str(e), 'vpn': False, 'proxy': False,
-                'tor': False, 'relay': False, 'country': '—', 'city': '—', 'isp': '—'}
+    except requests.RequestException:
+        return {'ip': ip, 'error': 'Failed to reach vpnapi.io', 'vpn': False,
+                'proxy': False, 'tor': False, 'relay': False,
+                'country': '—', 'city': '—', 'isp': '—'}
 
 
 @app.route('/')
@@ -48,12 +72,25 @@ def index():
 
 
 @app.route('/api/check', methods=['POST'])
+@limiter.limit("30 per minute")
 def check_ips():
     data = request.get_json(force=True, silent=True) or {}
-    ips = data.get('ips', [])
-    if not isinstance(ips, list) or not ips:
+    raw_ips = data.get('ips', [])
+
+    if not isinstance(raw_ips, list) or not raw_ips:
         return jsonify({'error': 'Provide a non-empty list of IPs'}), 400
-    ips = ips[:100]
+
+    # Validate, deduplicate, cap
+    seen = set()
+    ips = []
+    for ip in raw_ips[:100]:
+        if not is_valid_ip(ip) or ip in seen:
+            continue
+        seen.add(ip)
+        ips.append(ip)
+
+    if not ips:
+        return jsonify({'error': 'No valid IPs provided'}), 400
 
     order = {ip: i for i, ip in enumerate(ips)}
     results = [None] * len(ips)
@@ -69,4 +106,4 @@ def check_ips():
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
-    app.run(host='0.0.0.0', port=port)
+    app.run(host='0.0.0.0', port=port)  # nosec B104 — required for Render
