@@ -39,6 +39,8 @@ def is_valid_ip(value):
 # ── Response parsers (normalize each provider to the same shape) ──────────────
 
 def parse_vpnapi(ip, d):
+    if 'security' not in d:
+        raise ValueError('quota or unexpected response')
     sec = d.get('security', {})
     loc = d.get('location', {})
     net = d.get('network', {})
@@ -55,6 +57,8 @@ def parse_vpnapi(ip, d):
     }
 
 def parse_iphub(ip, d):
+    if 'block' not in d:
+        raise ValueError('quota or unexpected response')
     # block: 0 = clean, 1 = VPN/proxy, 2 = hosting (not necessarily bad)
     block = d.get('block', 0)
     return {
@@ -70,6 +74,8 @@ def parse_iphub(ip, d):
     }
 
 def parse_ipgeo(ip, d):
+    if 'security' not in d:
+        raise ValueError('quota or unexpected response')
     sec = d.get('security', {})
     return {
         'ip': ip, 'error': None,
@@ -84,6 +90,8 @@ def parse_ipgeo(ip, d):
     }
 
 def parse_iplogs(ip, d):
+    if 'verdict' not in d and 'signals' not in d:
+        raise ValueError('quota or unexpected response')
     signals = d.get('signals', {})
     verdict = d.get('verdict', '')
     return {
@@ -166,9 +174,13 @@ def fetch_one(ip):
                 msg = (body.get('message') or body.get('error') or '').lower()
                 if any(kw in msg for kw in p['quota_keywords']):
                     exhausted.add(name)
-                    continue
-                continue   # non-quota error, try next provider
-            return p['parse'](ip, r.json())
+                continue   # non-quota HTTP error, try next provider
+            try:
+                return p['parse'](ip, r.json())
+            except ValueError:
+                # 200 OK but body signals quota/error (e.g. {"message": "limit reached"})
+                exhausted.add(name)
+                continue
         except requests.RequestException:
             continue       # network error, try next provider
 
