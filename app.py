@@ -72,8 +72,8 @@ def index():
 
 
 @app.route('/api/check', methods=['POST'])
-@limiter.limit("5 per minute")   # burst cap: max 50 IPs/min per user
-@limiter.limit("20 per day")     # daily cap: max 200 IPs/day per user (20 × 10 IPs)
+@limiter.limit("20 per minute")  # burst cap: max 200 IPs/min per user (20 × 10 IPs)
+@limiter.limit("100 per day")    # daily cap: max 1000 IPs/day per user (100 × 10 IPs)
 def check_ips():
     data = request.get_json(force=True, silent=True) or {}
     raw_ips = data.get('ips', [])
