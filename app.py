@@ -90,19 +90,19 @@ def parse_ipgeo(ip, d):
     }
 
 def parse_iplogs(ip, d):
-    if 'verdict' not in d and 'signals' not in d:
+    if 'verdict' not in d and 'is_vpn' not in d:
         raise ValueError('quota or unexpected response')
-    signals = d.get('signals', {})
-    verdict = d.get('verdict', '')
+    # Live API: flags are top-level booleans; location nested under ip_info
+    info = d.get('ip_info', {})
     return {
         'ip': ip, 'error': None,
-        'vpn':   bool(signals.get('vpn'))   or verdict == 'vpn',
-        'proxy': bool(signals.get('proxy')) or verdict == 'proxy',
-        'tor':   bool(signals.get('tor'))   or verdict == 'tor',
+        'vpn':   bool(d.get('is_vpn')),
+        'proxy': bool(d.get('is_proxy', False)),
+        'tor':   bool(d.get('is_tor', False)),
         'relay': False,
-        'country': d.get('country', '—'),
-        'city':    d.get('city', '—'),
-        'isp':     d.get('isp', '—'),
+        'country': info.get('country', '—'),
+        'city':    info.get('city', '—'),
+        'isp':     info.get('isp', '—'),
         'source':  'IPLogs',
     }
 
