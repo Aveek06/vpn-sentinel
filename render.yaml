@@ -1,0 +1,9 @@
+services:
+  - type: web
+    name: vpn-sentinel
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app
+    envVars:
+      - key: VPNAPI_KEY
+        sync: false

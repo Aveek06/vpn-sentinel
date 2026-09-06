@@ -1,0 +1,571 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>VPN Sentinel</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #EEEAE0;
+      --surface: #F6F3EA;
+      --text: #0C0C0C;
+      --muted: rgba(12,12,12,0.45);
+      --border: #0C0C0C;
+      --accent: #FF1500;
+      --green: #007A30;
+      --shadow: 5px 5px 0 var(--border);
+      --shadow-lg: 7px 7px 0 var(--border);
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root:not([data-theme="light"]) {
+        --bg: #111111;
+        --surface: #1C1C1C;
+        --text: #E5E0D0;
+        --muted: rgba(229,224,208,0.4);
+        --border: #E5E0D0;
+        --shadow: 5px 5px 0 var(--border);
+        --shadow-lg: 7px 7px 0 var(--border);
+      }
+    }
+
+    :root[data-theme="dark"] {
+      --bg: #111111;
+      --surface: #1C1C1C;
+      --text: #E5E0D0;
+      --muted: rgba(229,224,208,0.4);
+      --border: #E5E0D0;
+      --shadow: 5px 5px 0 var(--border);
+      --shadow-lg: 7px 7px 0 var(--border);
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Space Mono', 'Courier New', monospace;
+      padding: clamp(1rem, 4vw, 3rem);
+      min-height: 100vh;
+    }
+
+    /* HEADER */
+    .hdr {
+      display: flex;
+      align-items: flex-end;
+      gap: clamp(1rem, 3vw, 2.5rem);
+      border-bottom: 4px solid var(--border);
+      padding-bottom: 1.25rem;
+      margin-bottom: 2.5rem;
+    }
+
+    .hdr-title {
+      font-family: 'Bebas Neue', Impact, sans-serif;
+      font-size: clamp(3.5rem, 11vw, 7.5rem);
+      line-height: 1;
+      letter-spacing: 0.02em;
+    }
+
+    .hdr-title .dot { color: var(--accent); }
+
+    .hdr-meta { padding-bottom: 0.5rem; }
+
+    .hdr-meta p {
+      font-size: 0.62rem;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      color: var(--muted);
+      line-height: 1.9;
+    }
+
+    /* INPUT */
+    .input-block {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      border: 3px solid var(--border);
+      box-shadow: var(--shadow-lg);
+      margin-bottom: 1.75rem;
+    }
+
+    textarea {
+      background: var(--surface);
+      border: none;
+      border-right: 3px solid var(--border);
+      color: var(--text);
+      font-family: 'Space Mono', monospace;
+      font-size: 0.78rem;
+      line-height: 1.8;
+      min-height: 130px;
+      outline: none;
+      padding: 1.1rem 1.3rem;
+      resize: vertical;
+      width: 100%;
+    }
+
+    textarea::placeholder { color: var(--muted); }
+    textarea:focus { box-shadow: inset 0 0 0 2px var(--accent); }
+
+    .scan-btn {
+      background: var(--text);
+      border: none;
+      color: var(--bg);
+      cursor: pointer;
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: 2rem;
+      letter-spacing: 0.14em;
+      padding: 1.25rem 1.5rem;
+      writing-mode: vertical-lr;
+      transition: background 0.08s, color 0.08s;
+      user-select: none;
+    }
+
+    .scan-btn:hover:not(:disabled) { background: var(--accent); color: #fff; }
+    .scan-btn:active:not(:disabled) { transform: translate(2px, 2px); }
+    .scan-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+
+    .hint {
+      font-size: 0.58rem;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 1.75rem;
+      text-align: right;
+    }
+
+    /* PROGRESS */
+    .prog-wrap {
+      border: 3px solid var(--border);
+      height: 12px;
+      margin-bottom: 1.75rem;
+      overflow: hidden;
+      display: none;
+    }
+
+    .prog-fill {
+      background: var(--text);
+      height: 100%;
+      width: 0;
+      transition: width 0.2s ease, background 0.4s;
+    }
+
+    /* STATS */
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      border: 3px solid var(--border);
+      box-shadow: var(--shadow);
+      margin-bottom: 2rem;
+    }
+
+    .stat {
+      padding: 1.1rem 1.5rem;
+      border-right: 3px solid var(--border);
+    }
+
+    .stat:last-child { border-right: none; }
+
+    .stat-lbl {
+      font-size: 0.56rem;
+      letter-spacing: 0.22em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 0.2rem;
+    }
+
+    .stat-num {
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: clamp(2rem, 5vw, 3.2rem);
+      line-height: 1;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .stat-num.danger { color: var(--accent); }
+    .stat-num.safe   { color: var(--green); }
+
+    /* TABLE */
+    .tbl-wrap {
+      overflow-x: auto;
+      border: 3px solid var(--border);
+      box-shadow: var(--shadow-lg);
+    }
+
+    table { border-collapse: collapse; width: 100%; min-width: 580px; }
+
+    thead tr { background: var(--text); }
+
+    th {
+      color: var(--bg);
+      font-family: 'Space Mono', monospace;
+      font-size: 0.58rem;
+      font-weight: 700;
+      letter-spacing: 0.2em;
+      padding: 0.85rem 1rem;
+      text-align: left;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+
+    td {
+      border-top: 2px solid var(--border);
+      font-size: 0.74rem;
+      padding: 0.7rem 1rem;
+      vertical-align: middle;
+    }
+
+    tr.is-flagged td { background: rgba(255,21,0,0.055); }
+
+    .ip-val { font-weight: 700; letter-spacing: 0.05em; white-space: nowrap; }
+
+    /* BADGES */
+    .badges { display: flex; flex-wrap: wrap; gap: 0.3rem; }
+
+    .badge {
+      border: 2px solid;
+      display: inline-block;
+      font-size: 0.54rem;
+      font-weight: 700;
+      letter-spacing: 0.15em;
+      padding: 0.15rem 0.4rem;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+
+    .b-vpn   { border-color: #FF1500; color: #FF1500; }
+    .b-proxy { border-color: #CC5500; color: #CC5500; }
+    .b-tor   { border-color: #7700CC; color: #7700CC; }
+    .b-relay { border-color: #996600; color: #996600; }
+    .b-clean { border-color: var(--green); color: var(--green); }
+    .b-err   { border-color: var(--muted); color: var(--muted); }
+
+    /* EXPORT BAR */
+    .export-bar {
+      display: flex;
+      align-items: center;
+      gap: 1.5rem;
+      border: 3px solid var(--border);
+      box-shadow: var(--shadow);
+      margin-bottom: 2rem;
+      padding: 0.8rem 1.25rem;
+      background: var(--surface);
+    }
+
+    .export-lbl {
+      font-size: 0.58rem;
+      letter-spacing: 0.22em;
+      text-transform: uppercase;
+      color: var(--muted);
+      flex: 1;
+    }
+
+    .export-lbl strong {
+      font-weight: 700;
+      color: var(--accent);
+    }
+
+    .export-btns { display: flex; }
+
+    .exp-btn {
+      background: var(--surface);
+      border: 2px solid var(--border);
+      border-right: none;
+      color: var(--text);
+      cursor: pointer;
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: 1.15rem;
+      letter-spacing: 0.14em;
+      padding: 0.35rem 1.1rem;
+      transition: background 0.08s, color 0.08s;
+    }
+
+    .exp-btn:last-child { border-right: 2px solid var(--border); }
+    .exp-btn:hover { background: var(--text); color: var(--bg); }
+    .exp-btn:active { transform: translate(1px, 1px); }
+
+    /* EMPTY STATE */
+    .empty {
+      border: 3px solid var(--border);
+      box-shadow: var(--shadow-lg);
+      padding: 4rem 2rem 3.5rem;
+      text-align: center;
+    }
+
+    .empty-glyph {
+      font-family: 'Bebas Neue', sans-serif;
+      font-size: clamp(6rem, 20vw, 11rem);
+      line-height: 1;
+      opacity: 0.1;
+      display: block;
+    }
+
+    .empty p {
+      font-size: 0.62rem;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-top: 0.5rem;
+    }
+
+    /* RESPONSIVE */
+    @media (max-width: 560px) {
+      .input-block { grid-template-columns: 1fr; }
+      .scan-btn {
+        writing-mode: horizontal-tb;
+        padding: 1rem;
+        font-size: 1.8rem;
+        letter-spacing: 0.2em;
+        border-top: 3px solid var(--border);
+      }
+      .hdr { flex-direction: column; align-items: flex-start; gap: 0.5rem; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { transition: none !important; }
+    }
+  </style>
+</head>
+<body>
+
+  <header class="hdr">
+    <h1 class="hdr-title">VPN<span class="dot">.</span>SENTINEL</h1>
+    <div class="hdr-meta">
+      <p>IP Intelligence / Threat Detection</p>
+      <p>Powered by vpnapi.io</p>
+    </div>
+  </header>
+
+  <div class="input-block">
+    <textarea id="ip-input" spellcheck="false"
+      placeholder="Paste IPs — one per line or comma-separated&#10;&#10;1.1.1.1&#10;8.8.8.8, 104.28.0.1&#10;2606:4700:4700::1111"></textarea>
+    <button class="scan-btn" id="scan-btn" onclick="runScan()">SCAN</button>
+  </div>
+
+  <p class="hint">Ctrl + Enter to scan &nbsp;·&nbsp; IPv4 and IPv6 supported</p>
+
+  <div class="prog-wrap" id="prog-wrap">
+    <div class="prog-fill" id="prog-fill"></div>
+  </div>
+
+  <div class="stats">
+    <div class="stat">
+      <div class="stat-lbl">Total Scanned</div>
+      <div class="stat-num" id="st-total">0</div>
+    </div>
+    <div class="stat">
+      <div class="stat-lbl">Flagged</div>
+      <div class="stat-num danger" id="st-flagged">0</div>
+    </div>
+    <div class="stat">
+      <div class="stat-lbl">Clean</div>
+      <div class="stat-num safe" id="st-clean">0</div>
+    </div>
+  </div>
+
+  <div class="export-bar" id="export-bar" hidden>
+    <span class="export-lbl">Export <strong id="export-count">0</strong> flagged IPs as</span>
+    <div class="export-btns">
+      <button class="exp-btn" onclick="exportFile('txt')" title="One IP per line">TXT</button>
+      <button class="exp-btn" onclick="exportFile('csv')" title="IP, flags, country, city, ISP">CSV</button>
+      <button class="exp-btn" onclick="exportFile('json')" title="Full structured data">JSON</button>
+    </div>
+  </div>
+
+  <div id="results-area">
+    <div class="empty">
+      <span class="empty-glyph">?</span>
+      <p>Enter IPs above and hit scan</p>
+    </div>
+  </div>
+
+  <script>
+    let scanning = false;
+    let allResults = [];
+
+    function parseIPs(raw) {
+      return [...new Set(
+        raw.split(/[\n,\s]+/)
+           .map(s => s.trim())
+           .filter(s => s.length > 2 && /^[0-9a-fA-F.:]+$/.test(s))
+      )];
+    }
+
+    async function checkBatch(ips) {
+      try {
+        const r = await fetch('/api/check', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ips }),
+        });
+        if (!r.ok) {
+          const msg = await r.text().catch(() => `HTTP ${r.status}`);
+          throw new Error(msg);
+        }
+        return r.json();
+      } catch (e) {
+        return ips.map(ip => ({ ip, vpn: false, proxy: false, tor: false, relay: false,
+                                 country: '—', city: '—', isp: '—', error: e.message }));
+      }
+    }
+
+    function isFlagged(r) { return r.vpn || r.proxy || r.tor || r.relay; }
+
+    function esc(s) {
+      return String(s)
+        .replace(/&/g,'&amp;')
+        .replace(/</g,'&lt;')
+        .replace(/>/g,'&gt;');
+    }
+
+    function renderBadges(r) {
+      if (r.error) return `<span class="badge b-err" title="${esc(r.error)}">ERROR</span>`;
+      const b = [];
+      if (r.vpn)   b.push('<span class="badge b-vpn">VPN</span>');
+      if (r.proxy) b.push('<span class="badge b-proxy">PROXY</span>');
+      if (r.tor)   b.push('<span class="badge b-tor">TOR</span>');
+      if (r.relay) b.push('<span class="badge b-relay">RELAY</span>');
+      if (!b.length) b.push('<span class="badge b-clean">CLEAN</span>');
+      return `<div class="badges">${b.join('')}</div>`;
+    }
+
+    function getFlagged() {
+      return allResults.filter(r => !r.error && isFlagged(r));
+    }
+
+    function downloadFile(content, filename, mime) {
+      const blob = new Blob([content], { type: mime });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }
+
+    function exportFile(format) {
+      const flagged = getFlagged();
+      if (!flagged.length) return;
+      const ts = new Date().toISOString().slice(0, 10);
+
+      if (format === 'txt') {
+        downloadFile(
+          flagged.map(r => r.ip).join('\n'),
+          `flagged-ips-${ts}.txt`,
+          'text/plain'
+        );
+      } else if (format === 'csv') {
+        const header = 'IP,VPN,PROXY,TOR,RELAY,COUNTRY,CITY,ISP';
+        const rows = flagged.map(r =>
+          [r.ip, r.vpn, r.proxy, r.tor, r.relay,
+           `"${r.country}"`, `"${r.city}"`,
+           `"${r.isp.replace(/"/g, '""')}"`].join(',')
+        );
+        downloadFile([header, ...rows].join('\n'), `flagged-ips-${ts}.csv`, 'text/csv');
+      } else if (format === 'json') {
+        const data = flagged.map(r => ({
+          ip: r.ip,
+          flags: { vpn: r.vpn, proxy: r.proxy, tor: r.tor, relay: r.relay },
+          location: { country: r.country, city: r.city },
+          isp: r.isp,
+        }));
+        downloadFile(JSON.stringify(data, null, 2), `flagged-ips-${ts}.json`, 'application/json');
+      }
+    }
+
+    function updateStats(rows) {
+      const flaggedRows = rows.filter(r => !r.error && isFlagged(r));
+      const clean       = rows.filter(r => !r.error && !isFlagged(r)).length;
+      document.getElementById('st-total').textContent   = rows.length;
+      document.getElementById('st-flagged').textContent = flaggedRows.length;
+      document.getElementById('st-clean').textContent   = clean;
+
+      const bar = document.getElementById('export-bar');
+      bar.hidden = flaggedRows.length === 0;
+      document.getElementById('export-count').textContent = flaggedRows.length;
+    }
+
+    function renderTable(rows) {
+      updateStats(rows);
+      if (!rows.length) return;
+
+      const tbody = rows.map(r => `
+        <tr class="${isFlagged(r) ? 'is-flagged' : ''}">
+          <td class="ip-val">${esc(r.ip)}</td>
+          <td>${renderBadges(r)}</td>
+          <td>${esc(r.country)}</td>
+          <td>${esc(r.city)}</td>
+          <td style="max-width:220px;word-break:break-word">${esc(r.isp)}</td>
+        </tr>`).join('');
+
+      document.getElementById('results-area').innerHTML = `
+        <div class="tbl-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>IP Address</th>
+                <th>Status</th>
+                <th>Country</th>
+                <th>City</th>
+                <th>ISP / ASN</th>
+              </tr>
+            </thead>
+            <tbody>${tbody}</tbody>
+          </table>
+        </div>`;
+    }
+
+    async function runScan() {
+      if (scanning) return;
+      const raw = document.getElementById('ip-input').value;
+      const ips = parseIPs(raw);
+
+      if (!ips.length) {
+        const ta = document.getElementById('ip-input');
+        ta.style.boxShadow = 'inset 0 0 0 2px #FF1500';
+        ta.focus();
+        setTimeout(() => { ta.style.boxShadow = ''; }, 900);
+        return;
+      }
+
+      scanning = true;
+      allResults = [];
+      document.getElementById('scan-btn').disabled = true;
+      document.getElementById('st-total').textContent   = '…';
+      document.getElementById('st-flagged').textContent = '…';
+      document.getElementById('st-clean').textContent   = '…';
+
+      const progWrap = document.getElementById('prog-wrap');
+      const progFill = document.getElementById('prog-fill');
+      progWrap.style.display = 'block';
+      progFill.style.background = 'var(--text)';
+      progFill.style.width = '0%';
+
+      const BATCH_SIZE = 10;
+      let done = 0;
+
+      for (let i = 0; i < ips.length; i += BATCH_SIZE) {
+        const batch = ips.slice(i, i + BATCH_SIZE);
+        const batchRes = await checkBatch(batch);
+        allResults.push(...batchRes);
+        done += batch.length;
+        progFill.style.width = `${(done / ips.length) * 100}%`;
+        renderTable([...allResults]);
+      }
+
+      progFill.style.background = 'var(--green)';
+      setTimeout(() => { progWrap.style.display = 'none'; }, 1200);
+
+      scanning = false;
+      document.getElementById('scan-btn').disabled = false;
+    }
+
+    document.getElementById('ip-input').addEventListener('keydown', e => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') runScan();
+    });
+  </script>
+
+</body>
+</html>
