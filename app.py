@@ -88,8 +88,8 @@ def parse_proxycheck(ip, d):
         'proxy': bool(det.get('proxy')),
         'tor':   bool(det.get('tor')),
         'relay': False,
-        'country': loc.get('country', '—'),
-        'city':    loc.get('city', '—'),
+        'country': loc.get('country_name', '—'),
+        'city':    loc.get('city_name', '—'),
         'isp':     net.get('provider', '—'),
         'source':  'proxycheck.io',
     }
