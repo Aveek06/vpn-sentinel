@@ -793,7 +793,7 @@
       const BATCH_SIZE = ips.length <= 100  ? 10
                        : ips.length <= 1000 ? 50
                        : ips.length <= 5000 ? 100
-                       : 200;
+                       : 150;
       let done = 0;
 
       for (let i = 0; i < ips.length; i += BATCH_SIZE) {
