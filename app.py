@@ -21,6 +21,7 @@ KEYS = {
     'iphub':           os.environ.get('IPHUB_KEY'),
     'proxycheck':      os.environ.get('PROXYCHECK_KEY'),
     'ipqualityscore':  os.environ.get('IPQS_KEY'),
+    'abstractapi':     os.environ.get('ABSTRACTAPI_KEY'),
 }
 
 # Tracks providers that have hit their daily quota (resets on server restart)
@@ -93,6 +94,24 @@ def parse_proxycheck(ip, d):
         'city':    loc.get('city_name', '—'),
         'isp':     net.get('provider', '—'),
         'source':  'proxycheck.io',
+    }
+
+def parse_abstractapi(ip, d):
+    if 'security' not in d:
+        raise ValueError('quota or unexpected response')
+    sec = d.get('security', {})
+    loc = d.get('location', {})
+    company = d.get('company', {})
+    return {
+        'ip': ip, 'error': None,
+        'vpn':   bool(sec.get('is_vpn')),
+        'proxy': bool(sec.get('is_proxy')),
+        'tor':   bool(sec.get('is_tor')),
+        'relay': bool(sec.get('is_relay')),
+        'country': loc.get('country', '—'),
+        'city':    loc.get('city', '—'),
+        'isp':     company.get('name', '—'),
+        'source':  'AbstractAPI',
     }
 
 def parse_ipqualityscore(ip, d):
@@ -198,6 +217,17 @@ PROVIDERS = [
         'parse': parse_proxycheck,
         'quota_status': {429, 403},
         'quota_keywords': {'limit', 'quota', 'exceeded', 'denied'},
+    },
+    {
+        'name': 'abstractapi',
+        'enabled': lambda: bool(KEYS['abstractapi']),
+        'call': lambda ip: requests.get(
+            f'https://ip-intelligence.abstractapi.com/v1/?api_key={KEYS["abstractapi"]}&ip_address={ip}',
+            timeout=10
+        ),
+        'parse': parse_abstractapi,
+        'quota_status': {429, 403},
+        'quota_keywords': {'limit', 'quota', 'exceeded', 'upgrade'},
     },
     {
         'name': 'ipqualityscore',
