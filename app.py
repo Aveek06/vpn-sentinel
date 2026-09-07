@@ -419,9 +419,12 @@ def fetch_one(ip):
                 # Unexpected format for this specific IP — skip provider for
                 # this IP only; do NOT exhaust globally
                 continue
-            # Double-check clean results against a secondary provider
+            # Double-check clean results against a secondary provider,
+            # but only if at least one secondary is currently available.
             if not any([result.get('vpn'), result.get('proxy'),
-                        result.get('tor'), result.get('relay')]):
+                        result.get('tor'), result.get('relay')]) and any(
+                    s['name'] not in exhausted and s['enabled']()
+                    for s in SECONDARY_PROVIDERS):
                 secondary = _double_check(ip)
                 if secondary and any([secondary.get('vpn'), secondary.get('proxy'),
                                       secondary.get('tor'), secondary.get('relay')]):
