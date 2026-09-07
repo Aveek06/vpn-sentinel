@@ -27,6 +27,21 @@ KEYS = {
 # Tracks providers that have hit their daily quota (resets on server restart)
 exhausted: set[str] = set()
 
+# Well-known public infrastructure IPs — always clean regardless of provider flags
+KNOWN_CLEAN: set[str] = {
+    # Google DNS
+    '8.8.8.8', '8.8.4.4',
+    # Cloudflare DNS
+    '1.1.1.1', '1.0.0.1',
+    '2606:4700:4700::1111', '2606:4700:4700::1001',
+    # Quad9
+    '9.9.9.9', '149.112.112.112',
+    # OpenDNS
+    '208.67.222.222', '208.67.220.220',
+    # Cisco Umbrella
+    '208.67.222.123', '208.67.220.123',
+}
+
 _IPV4_RE = re.compile(r'^(\d{1,3}\.){3}\d{1,3}$')
 _IPV6_RE = re.compile(r'^[0-9a-fA-F:]+$')
 
@@ -279,6 +294,12 @@ PROVIDERS = [
 
 
 def fetch_one(ip):
+    if ip in KNOWN_CLEAN:
+        return {
+            'ip': ip, 'error': None,
+            'vpn': False, 'proxy': False, 'tor': False, 'relay': False,
+            'country': '—', 'city': '—', 'isp': '—', 'source': 'Whitelist',
+        }
     for p in PROVIDERS:
         name = p['name']
         if name in exhausted or not p['enabled']():
