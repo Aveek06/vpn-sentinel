@@ -428,10 +428,19 @@ def fetch_one(ip):
                     exhausted.add(name)
                 continue   # non-quota HTTP error, try next provider
             try:
-                return p['parse'](ip, r.json())
-            except ValueError:
-                # 200 OK but body signals quota/error (e.g. {"message": "limit reached"})
+                body = r.json()
+            except Exception:
+                continue   # unparseable body, try next provider
+            # Check for quota signal in a 200 OK body before parsing
+            msg = str(body.get('message') or body.get('error') or body.get('status') or '').lower()
+            if any(kw in msg for kw in p['quota_keywords']):
                 exhausted.add(name)
+                continue
+            try:
+                return p['parse'](ip, body)
+            except (ValueError, KeyError):
+                # Unexpected format for this specific IP — skip provider for
+                # this IP only; do NOT exhaust globally
                 continue
         except requests.RequestException:
             continue       # network error, try next provider
