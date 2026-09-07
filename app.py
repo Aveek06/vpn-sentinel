@@ -23,6 +23,7 @@ KEYS = {
     'ipapiis':         os.environ.get('IPAPIIS_KEY'),
     'abstractapi':     os.environ.get('ABSTRACTAPI_KEY'),
     'ipqualityscore':  os.environ.get('IPQS_KEY'),
+    'findip':          os.environ.get('FINDIP_KEY'),
 }
 
 # Tracks providers that have hit their daily quota (resets on server restart)
@@ -162,6 +163,23 @@ def parse_ipqualityscore(ip, d):
         'source':  'IPQualityScore',
     }
 
+def parse_findip(ip, d):
+    if 'intelligence' not in d:
+        raise ValueError('quota or unexpected response')
+    flags  = d.get('intelligence', {}).get('flags', {})
+    traits = d.get('traits', {})
+    return {
+        'ip': ip, 'error': None,
+        'vpn':   bool(flags.get('is_vpn')),
+        'proxy': bool(flags.get('is_proxy')),
+        'tor':   bool(flags.get('is_tor')),
+        'relay': bool(flags.get('is_relay')),
+        'country': d.get('country', {}).get('names', {}).get('en', '—'),
+        'city':    d.get('city', {}).get('names', {}).get('en', '—'),
+        'isp':     traits.get('isp', '—'),
+        'source':  'FindIP',
+    }
+
 def parse_iplocate(ip, d):
     if 'privacy' not in d:
         raise ValueError('quota or unexpected response')
@@ -283,6 +301,17 @@ PROVIDERS = [
         'parse': parse_ipqualityscore,
         'quota_status': {429},
         'quota_keywords': {'limit', 'quota', 'exceeded', 'monthly'},
+    },
+    {
+        'name': 'findip',
+        'enabled': lambda: bool(KEYS['findip']),
+        'call': lambda ip: requests.get(
+            f'https://api.findip.net/{ip}/?token={KEYS["findip"]}',
+            timeout=10
+        ),
+        'parse': parse_findip,
+        'quota_status': {429, 403},
+        'quota_keywords': {'limit', 'quota', 'exceeded', 'upgrade'},
     },
     {
         'name': 'iplocate',

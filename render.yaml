@@ -15,5 +15,7 @@ services:
         sync: false
       - key: IPQS_KEY
         sync: false
+      - key: FINDIP_KEY
+        sync: false
       - key: ABSTRACTAPI_KEY
         sync: false
