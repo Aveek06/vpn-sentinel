@@ -238,6 +238,17 @@ def parse_iplogs(ip, d):
 
 PROVIDERS = [
     {
+        'name': 'findip',
+        'enabled': lambda: bool(KEYS['findip']),
+        'call': lambda ip: requests.get(
+            f'https://api.findip.net/{ip}/?token={KEYS["findip"]}',
+            timeout=10
+        ),
+        'parse': parse_findip,
+        'quota_status': {429, 403},
+        'quota_keywords': {'limit', 'quota', 'exceeded', 'upgrade'},
+    },
+    {
         'name': 'vpnapi',
         'enabled': lambda: bool(KEYS['vpnapi']),
         'call': lambda ip: requests.get(
@@ -303,17 +314,6 @@ PROVIDERS = [
         'parse': parse_ipqualityscore,
         'quota_status': {429},
         'quota_keywords': {'limit', 'quota', 'exceeded', 'monthly'},
-    },
-    {
-        'name': 'findip',
-        'enabled': lambda: bool(KEYS['findip']),
-        'call': lambda ip: requests.get(
-            f'https://api.findip.net/{ip}/?token={KEYS["findip"]}',
-            timeout=10
-        ),
-        'parse': parse_findip,
-        'quota_status': {429, 403},
-        'quota_keywords': {'limit', 'quota', 'exceeded', 'upgrade'},
     },
     {
         'name': 'iplocate',
