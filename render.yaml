@@ -11,6 +11,8 @@ services:
         sync: false
       - key: PROXYCHECK_KEY
         sync: false
+      - key: IPAPIIS_KEY
+        sync: false
       - key: IPQS_KEY
         sync: false
       - key: ABSTRACTAPI_KEY
