@@ -571,17 +571,19 @@
       if (!rows.length) { panel.hidden = true; return; }
 
       const map = {};
+      let unavailable = 0;
       for (const r of rows) {
-        if (r.error) continue;
+        // Treat explicit errors AND source='—' (all-providers-failed fallback) as unavailable
+        if (r.error || !r.source || r.source === '—') { unavailable++; continue; }
         // GetIPIntel source includes a per-IP score — normalise to just the name
-        const src = r.source && r.source.startsWith('GetIPIntel') ? 'GetIPIntel' : (r.source || '—');
+        const src = r.source.startsWith('GetIPIntel') ? 'GetIPIntel' : r.source;
         if (!map[src]) map[src] = { answered: 0, flagged: 0, clean: 0 };
         map[src].answered++;
         if (isFlagged(r)) map[src].flagged++;
         else map[src].clean++;
       }
 
-      const tbody = Object.entries(map)
+      let rows_html = Object.entries(map)
         .sort((a, b) => b[1].answered - a[1].answered)
         .map(([src, s]) => {
           const rate = s.answered ? ((s.flagged / s.answered) * 100).toFixed(1) : '0.0';
@@ -597,7 +599,18 @@
           </tr>`;
         }).join('');
 
-      document.getElementById('prov-tbody').innerHTML = tbody;
+      // Append unavailable row last so real providers stay prominent
+      if (unavailable > 0) {
+        rows_html += `<tr style="opacity:0.55">
+          <td class="prov-name" title="All providers were quota-exhausted or unreachable for these IPs">⚠ Unavailable</td>
+          <td>${unavailable}</td>
+          <td>—</td>
+          <td>—</td>
+          <td>—</td>
+        </tr>`;
+      }
+
+      document.getElementById('prov-tbody').innerHTML = rows_html;
       panel.hidden = false;
     }
 
@@ -626,7 +639,7 @@
           <td>${esc(r.country)}</td>
           <td>${esc(r.city)}</td>
           <td style="max-width:220px;word-break:break-word">${esc(r.isp)}</td>
-          <td style="opacity:0.55;font-size:0.65rem">${esc(r.source || '—')}</td>
+          <td class="prov-dim" style="font-size:0.7rem">${esc(r.source || '—')}</td>
         </tr>`).join('');
 
       document.getElementById('results-area').innerHTML = `
