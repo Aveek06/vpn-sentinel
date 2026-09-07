@@ -250,8 +250,9 @@
     .b-proxy { border-color: #CC5500; color: #CC5500; }
     .b-tor   { border-color: #7700CC; color: #7700CC; }
     .b-relay { border-color: #996600; color: #996600; }
-    .b-clean { border-color: var(--green); color: var(--green); }
-    .b-err   { border-color: var(--muted); color: var(--muted); }
+    .b-clean     { border-color: var(--green); color: var(--green); }
+    .b-err       { border-color: var(--muted); color: var(--muted); }
+    .b-suspected { border-color: #E07800; color: #E07800; }
 
     /* EXPORT BAR */
     .export-bar {
@@ -435,6 +436,10 @@
 
     function renderBadges(r) {
       if (r.error) return `<span class="badge b-err" title="${esc(r.error)}">ERROR</span>`;
+      // GetIPIntel only gives a score — can't distinguish VPN/Proxy/Tor
+      if (r.source && r.source.startsWith('GetIPIntel') && isFlagged(r)) {
+        return '<div class="badges"><span class="badge b-suspected" title="Flagged by GetIPIntel score — type unknown">SUSPECTED</span></div>';
+      }
       const b = [];
       if (r.vpn)   b.push('<span class="badge b-vpn">VPN</span>');
       if (r.proxy) b.push('<span class="badge b-proxy">PROXY</span>');
