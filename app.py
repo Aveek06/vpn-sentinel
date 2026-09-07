@@ -204,8 +204,6 @@ def index():
 
 
 @app.route('/api/check', methods=['POST'])
-@limiter.limit("20 per minute")
-@limiter.limit("100 per day")
 def check_ips():
     data = request.get_json(force=True, silent=True) or {}
     raw_ips = data.get('ips', [])
@@ -215,7 +213,7 @@ def check_ips():
 
     seen: set[str] = set()
     ips = []
-    for ip in raw_ips[:100]:
+    for ip in raw_ips[:500]:
         if not is_valid_ip(ip) or ip in seen:
             continue
         seen.add(ip)
