@@ -254,6 +254,46 @@
     .b-err       { border-color: var(--muted); color: var(--muted); }
     .b-suspected { border-color: #E07800; color: #E07800; }
 
+    /* PROVIDER BREAKDOWN */
+    .prov-panel {
+      border: 3px solid var(--border);
+      box-shadow: var(--shadow);
+      margin-bottom: 2rem;
+      background: var(--surface);
+    }
+
+    .prov-toggle {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0.7rem 1.25rem;
+      cursor: pointer;
+      user-select: none;
+      background: none;
+      border: none;
+      width: 100%;
+      color: var(--text);
+      font-family: 'Space Mono', monospace;
+      font-size: 0.58rem;
+      font-weight: 700;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      text-align: left;
+    }
+
+    .prov-toggle:hover { background: rgba(128,128,128,0.08); }
+
+    .prov-caret { transition: transform 0.15s; display: inline-block; }
+    .prov-toggle.open .prov-caret { transform: rotate(90deg); }
+
+    .prov-body { border-top: 3px solid var(--border); overflow-x: auto; }
+    .prov-body table { min-width: 400px; }
+    .prov-body th { font-size: 0.55rem; letter-spacing: 0.18em; padding: 0.6rem 1rem; }
+    .prov-body td { font-size: 0.7rem; padding: 0.55rem 1rem; font-variant-numeric: tabular-nums; }
+    .prov-name { font-weight: 700; }
+    .prov-flag { color: var(--accent); font-weight: 700; }
+    .prov-dim  { color: var(--muted); }
+
     /* EXPORT BAR */
     .export-bar {
       display: flex;
@@ -378,6 +418,29 @@
     </div>
   </div>
 
+  <div class="prov-panel" id="provider-breakdown" hidden>
+    <button class="prov-toggle" id="prov-toggle" onclick="toggleProvPanel()">
+      <span>Provider Breakdown</span>
+      <span class="prov-caret">▶</span>
+    </button>
+    <div id="prov-body" hidden>
+      <div class="prov-body">
+        <table>
+          <thead>
+            <tr>
+              <th>Provider</th>
+              <th>Answered</th>
+              <th>Flagged</th>
+              <th>Clean</th>
+              <th>Flag Rate</th>
+            </tr>
+          </thead>
+          <tbody id="prov-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
   <div class="export-bar" id="export-bar" hidden>
     <span class="export-lbl">Export <strong id="export-count">0</strong> flagged IPs as</span>
     <div class="export-btns">
@@ -495,6 +558,49 @@
       }
     }
 
+    function toggleProvPanel() {
+      const btn  = document.getElementById('prov-toggle');
+      const body = document.getElementById('prov-body');
+      const open = !body.hidden;
+      body.hidden = open;
+      btn.classList.toggle('open', !open);
+    }
+
+    function renderProviderBreakdown(rows) {
+      const panel = document.getElementById('provider-breakdown');
+      if (!rows.length) { panel.hidden = true; return; }
+
+      const map = {};
+      for (const r of rows) {
+        if (r.error) continue;
+        // GetIPIntel source includes a per-IP score — normalise to just the name
+        const src = r.source && r.source.startsWith('GetIPIntel') ? 'GetIPIntel' : (r.source || '—');
+        if (!map[src]) map[src] = { answered: 0, flagged: 0, clean: 0 };
+        map[src].answered++;
+        if (isFlagged(r)) map[src].flagged++;
+        else map[src].clean++;
+      }
+
+      const tbody = Object.entries(map)
+        .sort((a, b) => b[1].answered - a[1].answered)
+        .map(([src, s]) => {
+          const rate = s.answered ? ((s.flagged / s.answered) * 100).toFixed(1) : '0.0';
+          const flagCell = s.flagged > 0
+            ? `<td class="prov-flag">${s.flagged}</td>`
+            : `<td class="prov-dim">0</td>`;
+          return `<tr>
+            <td class="prov-name">${esc(src)}</td>
+            <td>${s.answered}</td>
+            ${flagCell}
+            <td class="prov-dim">${s.clean}</td>
+            <td>${rate}%</td>
+          </tr>`;
+        }).join('');
+
+      document.getElementById('prov-tbody').innerHTML = tbody;
+      panel.hidden = false;
+    }
+
     function updateStats(rows) {
       const flaggedRows = rows.filter(r => !r.error && isFlagged(r));
       const clean       = rows.filter(r => !r.error && !isFlagged(r)).length;
@@ -505,6 +611,8 @@
       const bar = document.getElementById('export-bar');
       bar.hidden = flaggedRows.length === 0;
       document.getElementById('export-count').textContent = flaggedRows.length;
+
+      renderProviderBreakdown(rows);
     }
 
     function renderTable(rows) {
