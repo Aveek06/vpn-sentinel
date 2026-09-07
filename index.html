@@ -560,7 +560,11 @@
       progFill.style.background = 'var(--text)';
       progFill.style.width = '0%';
 
-      const BATCH_SIZE = 100;
+      // Scale batch size with total IP count to balance responsiveness vs. HTTP overhead
+      const BATCH_SIZE = ips.length <= 100  ? 10
+                       : ips.length <= 1000 ? 50
+                       : ips.length <= 5000 ? 100
+                       : 200;
       let done = 0;
 
       for (let i = 0; i < ips.length; i += BATCH_SIZE) {
