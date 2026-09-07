@@ -790,7 +790,7 @@
       progFill.style.width = '0%';
 
       // Scale batch size with total IP count to balance responsiveness vs. HTTP overhead
-      const BATCH_SIZE = ips.length < 50 ? 5 : 50;
+      const BATCH_SIZE = ips.length < 50 ? 5 : 100;
       let done = 0;
 
       for (let i = 0; i < ips.length; i += BATCH_SIZE) {
