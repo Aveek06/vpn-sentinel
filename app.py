@@ -57,6 +57,8 @@ def is_valid_ip(value):
 
 # ── Response parsers (normalize each provider to the same shape) ──────────────
 
+def _s(v): return v or '—'  # treat None/empty the same as missing
+
 def parse_vpnapi(ip, d):
     if 'security' not in d:
         raise ValueError('quota or unexpected response')
@@ -69,9 +71,9 @@ def parse_vpnapi(ip, d):
         'proxy': bool(sec.get('proxy')),
         'tor':   bool(sec.get('tor')),
         'relay': bool(sec.get('relay')),
-        'country': loc.get('country', '—'),
-        'city':    loc.get('city', '—'),
-        'isp':     net.get('autonomous_system_organization', '—'),
+        'country': _s(loc.get('country')),
+        'city':    _s(loc.get('city')),
+        'isp':     _s(net.get('autonomous_system_organization')),
         'source':  'vpnapi.io',
     }
 
@@ -87,9 +89,9 @@ def parse_iphub(ip, d):
         'proxy': block == 1,     # block=1 = suspected proxy/VPN (non-residential)
         'tor':   False,
         'relay': False,
-        'country': d.get('countryCode', '—'),
+        'country': _s(d.get('countryCode')),
         'city':    '—',
-        'isp':     d.get('isp', '—'),
+        'isp':     _s(d.get('isp')),
         'source':  'IPHub',
     }
 
@@ -107,9 +109,9 @@ def parse_proxycheck(ip, d):
         'proxy': bool(det.get('proxy')),
         'tor':   bool(det.get('tor')),
         'relay': False,
-        'country': loc.get('country_name', '—'),
-        'city':    loc.get('city_name', '—'),
-        'isp':     net.get('provider', '—'),
+        'country': _s(loc.get('country_name')),
+        'city':    _s(loc.get('city_name')),
+        'isp':     _s(net.get('provider')),
         'source':  'proxycheck.io',
     }
 
@@ -124,9 +126,9 @@ def parse_ipapiis(ip, d):
         'proxy': bool(d.get('is_proxy')),
         'tor':   bool(d.get('is_tor')),
         'relay': False,
-        'country': loc.get('country', '—'),
-        'city':    loc.get('city', '—'),
-        'isp':     company.get('name', '—'),
+        'country': _s(loc.get('country')),
+        'city':    _s(loc.get('city')),
+        'isp':     _s(company.get('name')),
         'source':  'ipapi.is',
     }
 
@@ -142,9 +144,9 @@ def parse_abstractapi(ip, d):
         'proxy': bool(sec.get('is_proxy')),
         'tor':   bool(sec.get('is_tor')),
         'relay': bool(sec.get('is_relay')),
-        'country': loc.get('country', '—'),
-        'city':    loc.get('city', '—'),
-        'isp':     company.get('name', '—'),
+        'country': _s(loc.get('country')),
+        'city':    _s(loc.get('city')),
+        'isp':     _s(company.get('name')),
         'source':  'AbstractAPI',
     }
 
@@ -157,9 +159,9 @@ def parse_ipqualityscore(ip, d):
         'proxy': bool(d.get('proxy')),
         'tor':   bool(d.get('tor')),
         'relay': False,
-        'country': d.get('country_code', '—'),
-        'city':    d.get('city', '—'),
-        'isp':     d.get('ISP', '—'),
+        'country': _s(d.get('country_code')),
+        'city':    _s(d.get('city')),
+        'isp':     _s(d.get('ISP')),
         'source':  'IPQualityScore',
     }
 
