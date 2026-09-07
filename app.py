@@ -145,7 +145,7 @@ def parse_proxycheck(ip, d):
         'tor':   bool(det.get('tor')),
         'relay': False,
         'country': _s(loc.get('country_name')),
-        'city':    _s(loc.get('city_name')),
+        'city':    _s(loc.get('city')),      # v3 uses 'city', not 'city_name'
         'isp':     _s(net.get('provider')),
         'source':  'proxycheck.io',
     }
@@ -254,13 +254,12 @@ def parse_getipintel(ip, d):
 def parse_iplogs(ip, d):
     if 'verdict' not in d and 'is_vpn' not in d:
         raise ValueError('quota or unexpected response')
-    # Live API: flags are top-level booleans; location nested under ip_info
     info = d.get('ip_info', {})
     return {
         'ip': ip, 'error': None,
         'vpn':   bool(d.get('is_vpn')),
-        'proxy': bool(d.get('is_proxy', False)),
-        'tor':   bool(d.get('is_tor', False)),
+        'proxy': bool(info.get('is_proxy', False)),   # is_proxy lives in ip_info, not top-level
+        'tor':   False,                                # IPLogs has no tor field
         'relay': False,
         'country': info.get('country', '—'),
         'city':    info.get('city', '—'),
@@ -284,6 +283,102 @@ PROVIDERS = [
         'quota_keywords': {'limit', 'quota', 'exceeded', 'upgrade'},
     },
 ]
+
+# Secondary providers used to double-check IPs that the primary marks clean.
+# Rotated via round-robin so daily quotas are spread evenly.
+SECONDARY_PROVIDERS = [
+    {
+        'name': 'vpnapi',
+        'enabled': lambda: bool(KEYS['vpnapi']),
+        'call': lambda ip: requests.get(
+            f'https://vpnapi.io/api/{ip}?key={KEYS["vpnapi"]}', timeout=10),
+        'parse': parse_vpnapi,
+        'quota_status': {429, 403},
+        'quota_keywords': {'limit', 'quota', 'exceeded', 'upgrade'},
+    },
+    {
+        'name': 'proxycheck',
+        'enabled': lambda: bool(KEYS['proxycheck']),
+        'call': lambda ip: requests.get(
+            f'https://proxycheck.io/v3/{ip}?key={KEYS["proxycheck"]}', timeout=10),
+        'parse': parse_proxycheck,
+        'quota_status': {429, 403},
+        'quota_keywords': {'limit', 'quota', 'exceeded', 'upgrade'},
+    },
+    {
+        'name': 'ipapiis',
+        'enabled': lambda: bool(KEYS['ipapiis']),
+        'call': lambda ip: requests.get(
+            f'https://api.ipapi.is/?q={ip}&key={KEYS["ipapiis"]}', timeout=10),
+        'parse': parse_ipapiis,
+        'quota_status': {429, 403},
+        'quota_keywords': {'limit', 'quota', 'exceeded', 'upgrade'},
+    },
+    # IPHub excluded — flags all non-residential IPs as proxy (too many false positives)
+    {
+        'name': 'iplocate',
+        'enabled': lambda: True,   # no key required; 1,000 req/day free
+        'call': lambda ip: requests.get(
+            f'https://iplocate.io/api/lookup/{ip}', timeout=10),
+        'parse': parse_iplocate,
+        'quota_status': {429},
+        'quota_keywords': {'limit', 'quota', 'exceeded'},
+    },
+    {
+        'name': 'iplogs',
+        'enabled': lambda: True,   # no key required
+        'call': lambda ip: requests.post(
+            'https://iplogs.com/v1/check', json={'ip': ip}, timeout=10),
+        'parse': parse_iplogs,
+        'quota_status': {429},
+        'quota_keywords': {'limit', 'quota', 'exceeded'},
+    },
+]
+
+# Round-robin state for secondary provider selection
+_rr_lock = threading.Lock()
+_rr_index = [0]
+
+
+def _double_check(ip):
+    """Re-verify a clean IP against the next available secondary provider."""
+    n = len(SECONDARY_PROVIDERS)
+    if n == 0:
+        return None
+    with _rr_lock:
+        start = _rr_index[0]
+        _rr_index[0] = (start + 1) % n
+    for offset in range(n):
+        p = SECONDARY_PROVIDERS[(start + offset) % n]
+        name = p['name']
+        if name in exhausted or not p['enabled']():
+            continue
+        try:
+            r = p['call'](ip)
+            if r.status_code in p['quota_status']:
+                exhausted.add(name)
+                continue
+            if not r.ok:
+                body = r.json() if r.content else {}
+                msg = (body.get('message') or body.get('error') or '').lower()
+                if any(kw in msg for kw in p['quota_keywords']):
+                    exhausted.add(name)
+                continue
+            try:
+                body = r.json()
+            except Exception:
+                continue
+            msg = str(body.get('message') or body.get('error') or body.get('status') or '').lower()
+            if any(kw in msg for kw in p['quota_keywords']):
+                exhausted.add(name)
+                continue
+            try:
+                return p['parse'](ip, body)
+            except (ValueError, KeyError):
+                continue
+        except requests.RequestException:
+            continue
+    return None
 
 
 def fetch_one(ip):
@@ -319,11 +414,26 @@ def fetch_one(ip):
                 exhausted.add(name)
                 continue
             try:
-                return p['parse'](ip, body)
+                result = p['parse'](ip, body)
             except (ValueError, KeyError):
                 # Unexpected format for this specific IP — skip provider for
                 # this IP only; do NOT exhaust globally
                 continue
+            # Double-check clean results against a secondary provider
+            if not any([result.get('vpn'), result.get('proxy'),
+                        result.get('tor'), result.get('relay')]):
+                secondary = _double_check(ip)
+                if secondary and any([secondary.get('vpn'), secondary.get('proxy'),
+                                      secondary.get('tor'), secondary.get('relay')]):
+                    # Secondary caught a threat the primary missed.
+                    # Keep primary's location data (usually richer) when available.
+                    if result['country'] != '—':
+                        secondary['country'] = result['country']
+                        secondary['city']    = result['city']
+                        secondary['isp']     = result['isp']
+                    secondary['source'] = f"{result['source']} → {secondary['source']}"
+                    return secondary
+            return result
         except requests.RequestException:
             continue       # network error, try next provider
 
@@ -444,7 +554,7 @@ def index():
 @app.route('/api/status')
 def status():
     rows = []
-    for p in PROVIDERS:
+    for p in PROVIDERS + SECONDARY_PROVIDERS:
         name = p['name']
         has_key = p['enabled']()
         is_exhausted = name in exhausted
