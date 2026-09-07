@@ -94,6 +94,23 @@ def parse_proxycheck(ip, d):
         'source':  'proxycheck.io',
     }
 
+def parse_getipintel(ip, d):
+    if d.get('status') != 'success' or 'result' not in d:
+        raise ValueError('quota or unexpected response')
+    score = float(d.get('result', 0))
+    flagged = score >= 0.95
+    return {
+        'ip': ip, 'error': None,
+        'vpn':   False,
+        'proxy': flagged,   # returns a 0-1 score; no VPN/proxy/tor distinction
+        'tor':   False,
+        'relay': False,
+        'country': '—',
+        'city':    '—',
+        'isp':     '—',
+        'source':  f'GetIPIntel ({score:.2f})',
+    }
+
 def parse_iplogs(ip, d):
     if 'verdict' not in d and 'is_vpn' not in d:
         raise ValueError('quota or unexpected response')
@@ -148,6 +165,18 @@ PROVIDERS = [
         'parse': parse_proxycheck,
         'quota_status': {429, 403},
         'quota_keywords': {'limit', 'quota', 'exceeded', 'denied'},
+    },
+    {
+        'name': 'getipintel',
+        'enabled': lambda: True,   # no key required
+        'call': lambda ip: requests.get(
+            f'https://check.getipintel.net/check.php?ip={ip}'
+            f'&contact=avnandy@deloitte.com&format=json&flags=m',
+            timeout=15
+        ),
+        'parse': parse_getipintel,
+        'quota_status': {429, 503},
+        'quota_keywords': {'limit', 'quota', 'blocked', 'banned'},
     },
     {
         'name': 'iplogs',
