@@ -13,11 +13,12 @@ Uses **four providers with automatic fallback** — when one hits its daily quot
 | 1st | [vpnapi.io](https://vpnapi.io) | 1,000 req/day | VPN, Proxy, Tor, Relay |
 | 2nd | [IPHub](https://iphub.info) | 1,000 req/day | Proxy (non-residential IPs) |
 | 3rd | [proxycheck.io](https://proxycheck.io) | 1,000 req/day | VPN, Proxy, Tor |
-| 4th | [IPLocate](https://iplocate.io) | 1,000 req/day (no key) | VPN, Proxy, Tor, Relay |
-| 5th | [GetIPIntel](https://getipintel.net) | Unlimited (15 req/min, no key) | Threat score (0–1) |
-| 6th | [IPLogs](https://iplogs.com) | Fair use (no key) | VPN, Proxy, Tor |
+| 4th | [IPQualityScore](https://ipqualityscore.com) | 1,000 req/month | VPN, Proxy, Tor |
+| 5th | [IPLocate](https://iplocate.io) | 1,000 req/day (no key) | VPN, Proxy, Tor, Relay |
+| 6th | [GetIPIntel](https://getipintel.net) | Unlimited (15 req/min, no key) | Threat score (0–1) |
+| 7th | [IPLogs](https://iplogs.com) | Fair use (no key) | VPN, Proxy, Tor |
 
-**Total free capacity: ~4,000 typed checks/day, then unlimited via GetIPIntel + IPLogs**
+**Total free capacity: ~4,000+ typed checks/day, then unlimited via GetIPIntel + IPLogs**
 
 When a provider exhausts its daily quota, the app automatically falls back to the next one — no restart or config change needed. IPLogs serves as an unlimited safety net.
 
@@ -65,11 +66,13 @@ pip install -r requirements.txt
 set VPNAPI_KEY=your_vpnapi_key
 set IPHUB_KEY=your_iphub_key
 set PROXYCHECK_KEY=your_proxycheck_key
+set IPQS_KEY=your_ipqualityscore_key
 
 # Mac / Linux
 export VPNAPI_KEY=your_vpnapi_key
 export IPHUB_KEY=your_iphub_key
 export PROXYCHECK_KEY=your_proxycheck_key
+export IPQS_KEY=your_ipqualityscore_key
 ```
 
 > IPLogs requires no key — it is used automatically as the final fallback.
@@ -104,6 +107,7 @@ python vpn_check.py 1.1.1.1 8.8.8.8 104.28.0.1
    - `VPNAPI_KEY` — from [vpnapi.io](https://vpnapi.io)
    - `IPHUB_KEY` — from [iphub.info](https://iphub.info)
    - `PROXYCHECK_KEY` — from [proxycheck.io](https://proxycheck.io)
+   - `IPQS_KEY` — from [ipqualityscore.com](https://ipqualityscore.com)
 6. Click **Deploy**
 
 > **Note:** The free tier sleeps after 15 min of inactivity. First request after sleep takes ~30 seconds to wake up.

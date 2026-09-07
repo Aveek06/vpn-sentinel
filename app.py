@@ -17,9 +17,10 @@ limiter = Limiter(
 )
 
 KEYS = {
-    'vpnapi':     os.environ.get('VPNAPI_KEY'),
-    'iphub':      os.environ.get('IPHUB_KEY'),
-    'proxycheck': os.environ.get('PROXYCHECK_KEY'),
+    'vpnapi':          os.environ.get('VPNAPI_KEY'),
+    'iphub':           os.environ.get('IPHUB_KEY'),
+    'proxycheck':      os.environ.get('PROXYCHECK_KEY'),
+    'ipqualityscore':  os.environ.get('IPQS_KEY'),
 }
 
 # Tracks providers that have hit their daily quota (resets on server restart)
@@ -92,6 +93,21 @@ def parse_proxycheck(ip, d):
         'city':    loc.get('city_name', '—'),
         'isp':     net.get('provider', '—'),
         'source':  'proxycheck.io',
+    }
+
+def parse_ipqualityscore(ip, d):
+    if not d.get('success'):
+        raise ValueError('quota or unexpected response')
+    return {
+        'ip': ip, 'error': None,
+        'vpn':   bool(d.get('vpn')),
+        'proxy': bool(d.get('proxy')),
+        'tor':   bool(d.get('tor')),
+        'relay': False,
+        'country': d.get('country_code', '—'),
+        'city':    d.get('city', '—'),
+        'isp':     d.get('ISP', '—'),
+        'source':  'IPQualityScore',
     }
 
 def parse_iplocate(ip, d):
@@ -182,6 +198,17 @@ PROVIDERS = [
         'parse': parse_proxycheck,
         'quota_status': {429, 403},
         'quota_keywords': {'limit', 'quota', 'exceeded', 'denied'},
+    },
+    {
+        'name': 'ipqualityscore',
+        'enabled': lambda: bool(KEYS['ipqualityscore']),
+        'call': lambda ip: requests.get(
+            f'https://ipqualityscore.com/api/json/ip/{KEYS["ipqualityscore"]}/{ip}',
+            timeout=10
+        ),
+        'parse': parse_ipqualityscore,
+        'quota_status': {429},
+        'quota_keywords': {'limit', 'quota', 'exceeded', 'monthly'},
     },
     {
         'name': 'iplocate',
