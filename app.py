@@ -1,5 +1,8 @@
 import os
 import re
+import datetime
+import threading
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from flask import Flask, jsonify, request, send_from_directory
 from flask_limiter import Limiter
@@ -26,8 +29,40 @@ KEYS = {
     'findip':          os.environ.get('FINDIP_KEY'),
 }
 
-# Tracks providers that have hit their daily quota (resets on server restart)
+# Tracks providers that have hit their daily quota; auto-clears at UTC midnight
 exhausted: set[str] = set()
+_exhausted_reset_date: list = [None]  # [datetime.date | None]
+
+def _maybe_reset_exhausted():
+    """Clear the exhausted set when the UTC date rolls over (quotas renew daily)."""
+    today = datetime.datetime.utcnow().date()
+    if _exhausted_reset_date[0] != today:
+        exhausted.clear()
+        _exhausted_reset_date[0] = today
+
+
+class _RateLimiter:
+    """Sliding-window rate limiter — thread-safe."""
+    def __init__(self, calls: int, period: float):
+        self._lock = threading.Lock()
+        self._calls = calls
+        self._period = period
+        self._timestamps: list = []
+
+    def acquire(self):
+        with self._lock:
+            now = time.monotonic()
+            self._timestamps = [t for t in self._timestamps if now - t < self._period]
+            if len(self._timestamps) >= self._calls:
+                sleep_for = self._period - (now - self._timestamps[0])
+                if sleep_for > 0:
+                    time.sleep(sleep_for)
+                now = time.monotonic()
+                self._timestamps = [t for t in self._timestamps if now - t < self._period]
+            self._timestamps.append(time.monotonic())
+
+# GetIPIntel hard limit: 15 req/min — stay at 14 to avoid 429s
+_getipintel_limiter = _RateLimiter(calls=14, period=60.0)
 
 # Well-known public infrastructure IPs — always clean regardless of provider flags
 KNOWN_CLEAN: set[str] = {
@@ -236,7 +271,18 @@ def parse_iplogs(ip, d):
 
 # ── Provider definitions ──────────────────────────────────────────────────────
 
+def _call_getipintel(ip):
+    _getipintel_limiter.acquire()  # enforce 14 req/min hard cap
+    return requests.get(
+        f'https://check.getipintel.net/check.php?ip={ip}'
+        f'&contact=avnandy@deloitte.com&format=json&flags=m',
+        timeout=15
+    )
+
+
+# Priority order — unlimited/high-quota providers first; monthly-capped ones last
 PROVIDERS = [
+    # 1 — Unlimited, no rate limit
     {
         'name': 'findip',
         'enabled': lambda: bool(KEYS['findip']),
@@ -248,6 +294,7 @@ PROVIDERS = [
         'quota_status': {429, 403},
         'quota_keywords': {'limit', 'quota', 'exceeded', 'upgrade'},
     },
+    # 2 — 1,000/day
     {
         'name': 'vpnapi',
         'enabled': lambda: bool(KEYS['vpnapi']),
@@ -259,6 +306,7 @@ PROVIDERS = [
         'quota_status': {429},
         'quota_keywords': {'limit', 'quota'},
     },
+    # 3 — 1,000/day
     {
         'name': 'iphub',
         'enabled': lambda: bool(KEYS['iphub']),
@@ -271,6 +319,7 @@ PROVIDERS = [
         'quota_status': {429, 401},
         'quota_keywords': {'limit', 'quota', 'exceeded'},
     },
+    # 4 — 1,000/day
     {
         'name': 'proxycheck',
         'enabled': lambda: bool(KEYS['proxycheck']),
@@ -282,6 +331,7 @@ PROVIDERS = [
         'quota_status': {429, 403},
         'quota_keywords': {'limit', 'quota', 'exceeded', 'denied'},
     },
+    # 5 — 1,000/day
     {
         'name': 'ipapiis',
         'enabled': lambda: bool(KEYS['ipapiis']),
@@ -293,6 +343,41 @@ PROVIDERS = [
         'quota_status': {429, 403},
         'quota_keywords': {'limit', 'quota', 'exceeded', 'upgrade'},
     },
+    # 6 — 1,000/day, no key
+    {
+        'name': 'iplocate',
+        'enabled': lambda: True,
+        'call': lambda ip: requests.get(
+            f'https://www.iplocate.io/api/lookup/{ip}',
+            timeout=10
+        ),
+        'parse': parse_iplocate,
+        'quota_status': {429, 403},
+        'quota_keywords': {'limit', 'quota', 'exceeded'},
+    },
+    # 7 — 500/day, 14 req/min (rate-limited), no key
+    {
+        'name': 'getipintel',
+        'enabled': lambda: True,
+        'call': _call_getipintel,
+        'parse': parse_getipintel,
+        'quota_status': {429, 503},
+        'quota_keywords': {'limit', 'quota', 'blocked', 'banned'},
+    },
+    # 8 — fair use, no key
+    {
+        'name': 'iplogs',
+        'enabled': lambda: True,
+        'call': lambda ip: requests.post(
+            'https://iplogs.com/v1/check',
+            json={'ip': ip},
+            timeout=10
+        ),
+        'parse': parse_iplogs,
+        'quota_status': {429},
+        'quota_keywords': {'limit'},
+    },
+    # 9 — 1,000/month (~33/day), 1 req/sec — last resort
     {
         'name': 'abstractapi',
         'enabled': lambda: bool(KEYS['abstractapi']),
@@ -304,6 +389,7 @@ PROVIDERS = [
         'quota_status': {429, 403},
         'quota_keywords': {'limit', 'quota', 'exceeded', 'upgrade'},
     },
+    # 10 — 35/day API — last resort
     {
         'name': 'ipqualityscore',
         'enabled': lambda: bool(KEYS['ipqualityscore']),
@@ -315,45 +401,11 @@ PROVIDERS = [
         'quota_status': {429},
         'quota_keywords': {'limit', 'quota', 'exceeded', 'monthly'},
     },
-    {
-        'name': 'iplocate',
-        'enabled': lambda: True,   # no key required
-        'call': lambda ip: requests.get(
-            f'https://www.iplocate.io/api/lookup/{ip}',
-            timeout=10
-        ),
-        'parse': parse_iplocate,
-        'quota_status': {429, 403},
-        'quota_keywords': {'limit', 'quota', 'exceeded'},
-    },
-    {
-        'name': 'getipintel',
-        'enabled': lambda: True,   # no key required
-        'call': lambda ip: requests.get(
-            f'https://check.getipintel.net/check.php?ip={ip}'
-            f'&contact=avnandy@deloitte.com&format=json&flags=m',
-            timeout=15
-        ),
-        'parse': parse_getipintel,
-        'quota_status': {429, 503},
-        'quota_keywords': {'limit', 'quota', 'blocked', 'banned'},
-    },
-    {
-        'name': 'iplogs',
-        'enabled': lambda: True,   # no key required
-        'call': lambda ip: requests.post(
-            'https://iplogs.com/v1/check',
-            json={'ip': ip},
-            timeout=10
-        ),
-        'parse': parse_iplogs,
-        'quota_status': {429},
-        'quota_keywords': {'limit'},
-    },
 ]
 
 
 def fetch_one(ip):
+    _maybe_reset_exhausted()
     if ip in KNOWN_CLEAN:
         return {
             'ip': ip, 'error': None,
@@ -389,6 +441,106 @@ def fetch_one(ip):
         'vpn': False, 'proxy': False, 'tor': False, 'relay': False,
         'country': '—', 'city': '—', 'isp': '—', 'source': '—',
     }
+
+
+# ── Batch helpers (fewer HTTP round-trips for providers that support it) ──────
+
+def _batch_proxycheck(ips: list) -> dict:
+    """1,000 IPs per POST — proxycheck.io v3 batch mode."""
+    if 'proxycheck' in exhausted or not KEYS['proxycheck']:
+        return {}
+    results = {}
+    for i in range(0, len(ips), 500):
+        chunk = ips[i:i + 500]
+        try:
+            ip_str = ','.join(chunk)
+            r = requests.post(
+                f'https://proxycheck.io/v3/{ip_str}?key={KEYS["proxycheck"]}&vpn=1&det=1',
+                timeout=90,
+            )
+            if r.status_code in {429, 403}:
+                exhausted.add('proxycheck')
+                break
+            if not r.ok:
+                continue
+            d = r.json()
+            if d.get('status') != 'ok':
+                exhausted.add('proxycheck')
+                break
+            for ip in chunk:
+                if ip in d:
+                    try:
+                        results[ip] = parse_proxycheck(ip, d)
+                    except (ValueError, KeyError):
+                        pass
+        except requests.RequestException:
+            continue
+    return results
+
+
+def _batch_ipapiis(ips: list) -> dict:
+    """100 IPs per call — ipapi.is free-tier bulk."""
+    if 'ipapiis' in exhausted or not KEYS['ipapiis']:
+        return {}
+    results = {}
+    for i in range(0, len(ips), 100):
+        chunk = ips[i:i + 100]
+        try:
+            r = requests.post(
+                'https://api.ipapi.is/',
+                json={'ips': chunk, 'key': KEYS['ipapiis']},
+                timeout=20,
+            )
+            if r.status_code in {429, 403}:
+                exhausted.add('ipapiis')
+                break
+            if not r.ok:
+                continue
+            data = r.json()
+            # Response is a list of result objects
+            if isinstance(data, list):
+                for item in data:
+                    ip = item.get('ip') or item.get('query', '')
+                    if ip in chunk:
+                        try:
+                            results[ip] = parse_ipapiis(ip, item)
+                        except (ValueError, KeyError):
+                            pass
+        except requests.RequestException:
+            continue
+    return results
+
+
+def _batch_iplogs(ips: list) -> dict:
+    """IPLogs bulk endpoint — fair use, no key."""
+    if 'iplogs' in exhausted:
+        return {}
+    results = {}
+    for i in range(0, len(ips), 200):
+        chunk = ips[i:i + 200]
+        try:
+            r = requests.post(
+                'https://iplogs.com/v1/bulk-check',
+                json={'ips': chunk},
+                timeout=30,
+            )
+            if r.status_code == 429:
+                exhausted.add('iplogs')
+                break
+            if not r.ok:
+                continue
+            data = r.json()
+            if isinstance(data, list):
+                for item in data:
+                    ip = item.get('ip', '')
+                    if ip:
+                        try:
+                            results[ip] = parse_iplogs(ip, item)
+                        except (ValueError, KeyError):
+                            pass
+        except requests.RequestException:
+            continue
+    return results
 
 
 # ── Routes ────────────────────────────────────────────────────────────────────
@@ -442,12 +594,25 @@ def check_ips():
 
     order = {ip: i for i, ip in enumerate(ips)}
     results: list = [None] * len(ips)
+    covered: dict[str, dict] = {}
 
+    # Phase 1 — batch-capable providers (fewer HTTP calls, same quota per IP)
+    for batch_fn in (_batch_proxycheck, _batch_ipapiis, _batch_iplogs):
+        if len(covered) == len(ips):
+            break
+        uncovered = [ip for ip in ips if ip not in covered]
+        covered.update(batch_fn(uncovered))
+
+    # Phase 2 — individual fetch_one for IPs not yet covered
+    remaining = [ip for ip in ips if ip not in covered]
     with ThreadPoolExecutor(max_workers=10) as ex:
-        futures = {ex.submit(fetch_one, ip): ip for ip in ips}
+        futures = {ex.submit(fetch_one, ip): ip for ip in remaining}
         for f in as_completed(futures):
             r = f.result()
-            results[order[r['ip']]] = r
+            covered[r['ip']] = r
+
+    for ip, r in covered.items():
+        results[order[ip]] = r
 
     return jsonify(results)
 
