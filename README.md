@@ -13,10 +13,11 @@ Uses **four providers with automatic fallback** — when one hits its daily quot
 | 1st | [vpnapi.io](https://vpnapi.io) | 1,000 req/day | VPN, Proxy, Tor, Relay |
 | 2nd | [IPHub](https://iphub.info) | 1,000 req/day | Proxy (non-residential IPs) |
 | 3rd | [proxycheck.io](https://proxycheck.io) | 1,000 req/day | VPN, Proxy, Tor |
-| 4th | [GetIPIntel](https://getipintel.net) | Unlimited (15 req/min, no key) | Proxy/VPN score (0–1) |
-| 5th | [IPLogs](https://iplogs.com) | Fair use (no key) | VPN, Proxy, Tor |
+| 4th | [IPLocate](https://iplocate.io) | 1,000 req/day (no key) | VPN, Proxy, Tor, Relay |
+| 5th | [GetIPIntel](https://getipintel.net) | Unlimited (15 req/min, no key) | Threat score (0–1) |
+| 6th | [IPLogs](https://iplogs.com) | Fair use (no key) | VPN, Proxy, Tor |
 
-**Total free capacity: ~3,000 keyed checks/day, then unlimited via GetIPIntel + IPLogs**
+**Total free capacity: ~4,000 typed checks/day, then unlimited via GetIPIntel + IPLogs**
 
 When a provider exhausts its daily quota, the app automatically falls back to the next one — no restart or config change needed. IPLogs serves as an unlimited safety net.
 

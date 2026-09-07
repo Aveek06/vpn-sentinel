@@ -94,6 +94,23 @@ def parse_proxycheck(ip, d):
         'source':  'proxycheck.io',
     }
 
+def parse_iplocate(ip, d):
+    if 'privacy' not in d:
+        raise ValueError('quota or unexpected response')
+    p = d.get('privacy', {})
+    a = d.get('asn', {})
+    return {
+        'ip': ip, 'error': None,
+        'vpn':   bool(p.get('is_vpn')),
+        'proxy': bool(p.get('is_proxy')),
+        'tor':   bool(p.get('is_tor')),
+        'relay': bool(p.get('is_icloud_relay')),
+        'country': d.get('country', '—'),
+        'city':    d.get('city', '—'),
+        'isp':     a.get('name', '—'),
+        'source':  'IPLocate',
+    }
+
 def parse_getipintel(ip, d):
     if d.get('status') != 'success' or 'result' not in d:
         raise ValueError('quota or unexpected response')
@@ -165,6 +182,17 @@ PROVIDERS = [
         'parse': parse_proxycheck,
         'quota_status': {429, 403},
         'quota_keywords': {'limit', 'quota', 'exceeded', 'denied'},
+    },
+    {
+        'name': 'iplocate',
+        'enabled': lambda: True,   # no key required
+        'call': lambda ip: requests.get(
+            f'https://www.iplocate.io/api/lookup/{ip}',
+            timeout=10
+        ),
+        'parse': parse_iplocate,
+        'quota_status': {429, 403},
+        'quota_keywords': {'limit', 'quota', 'exceeded'},
     },
     {
         'name': 'getipintel',
