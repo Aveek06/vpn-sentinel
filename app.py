@@ -271,18 +271,7 @@ def parse_iplogs(ip, d):
 
 # ── Provider definitions ──────────────────────────────────────────────────────
 
-def _call_getipintel(ip):
-    _getipintel_limiter.acquire()  # enforce 14 req/min hard cap
-    return requests.get(
-        f'https://check.getipintel.net/check.php?ip={ip}'
-        f'&contact=avnandy@deloitte.com&format=json&flags=m',
-        timeout=15
-    )
-
-
-# Priority order — unlimited/high-quota providers first; monthly-capped ones last
 PROVIDERS = [
-    # 1 — Unlimited, no rate limit
     {
         'name': 'findip',
         'enabled': lambda: bool(KEYS['findip']),
@@ -293,113 +282,6 @@ PROVIDERS = [
         'parse': parse_findip,
         'quota_status': {429, 403},
         'quota_keywords': {'limit', 'quota', 'exceeded', 'upgrade'},
-    },
-    # 2 — 1,000/day
-    {
-        'name': 'vpnapi',
-        'enabled': lambda: bool(KEYS['vpnapi']),
-        'call': lambda ip: requests.get(
-            f'https://vpnapi.io/api/{ip}?key={KEYS["vpnapi"]}',
-            timeout=10
-        ),
-        'parse': parse_vpnapi,
-        'quota_status': {429},
-        'quota_keywords': {'limit', 'quota'},
-    },
-    # 3 — 1,000/day
-    {
-        'name': 'iphub',
-        'enabled': lambda: bool(KEYS['iphub']),
-        'call': lambda ip: requests.get(
-            f'https://v2.api.iphub.info/ip/{ip}',
-            headers={'X-Key': KEYS['iphub']},
-            timeout=10
-        ),
-        'parse': parse_iphub,
-        'quota_status': {429, 401},
-        'quota_keywords': {'limit', 'quota', 'exceeded'},
-    },
-    # 4 — 1,000/day
-    {
-        'name': 'proxycheck',
-        'enabled': lambda: bool(KEYS['proxycheck']),
-        'call': lambda ip: requests.get(
-            f'https://proxycheck.io/v3/{ip}?key={KEYS["proxycheck"]}&vpn=1',
-            timeout=10
-        ),
-        'parse': parse_proxycheck,
-        'quota_status': {429, 403},
-        'quota_keywords': {'limit', 'quota', 'exceeded', 'denied'},
-    },
-    # 5 — 1,000/day
-    {
-        'name': 'ipapiis',
-        'enabled': lambda: bool(KEYS['ipapiis']),
-        'call': lambda ip: requests.get(
-            f'https://api.ipapi.is/?q={ip}&key={KEYS["ipapiis"]}',
-            timeout=10
-        ),
-        'parse': parse_ipapiis,
-        'quota_status': {429, 403},
-        'quota_keywords': {'limit', 'quota', 'exceeded', 'upgrade'},
-    },
-    # 6 — 1,000/day, no key
-    {
-        'name': 'iplocate',
-        'enabled': lambda: True,
-        'call': lambda ip: requests.get(
-            f'https://www.iplocate.io/api/lookup/{ip}',
-            timeout=10
-        ),
-        'parse': parse_iplocate,
-        'quota_status': {429, 403},
-        'quota_keywords': {'limit', 'quota', 'exceeded'},
-    },
-    # 7 — 500/day, 14 req/min (rate-limited), no key
-    {
-        'name': 'getipintel',
-        'enabled': lambda: True,
-        'call': _call_getipintel,
-        'parse': parse_getipintel,
-        'quota_status': {429, 503},
-        'quota_keywords': {'limit', 'quota', 'blocked', 'banned'},
-    },
-    # 8 — fair use, no key
-    {
-        'name': 'iplogs',
-        'enabled': lambda: True,
-        'call': lambda ip: requests.post(
-            'https://iplogs.com/v1/check',
-            json={'ip': ip},
-            timeout=10
-        ),
-        'parse': parse_iplogs,
-        'quota_status': {429},
-        'quota_keywords': {'limit'},
-    },
-    # 9 — 1,000/month (~33/day), 1 req/sec — last resort
-    {
-        'name': 'abstractapi',
-        'enabled': lambda: bool(KEYS['abstractapi']),
-        'call': lambda ip: requests.get(
-            f'https://ip-intelligence.abstractapi.com/v1/?api_key={KEYS["abstractapi"]}&ip_address={ip}',
-            timeout=10
-        ),
-        'parse': parse_abstractapi,
-        'quota_status': {429, 403},
-        'quota_keywords': {'limit', 'quota', 'exceeded', 'upgrade'},
-    },
-    # 10 — 35/day API — last resort
-    {
-        'name': 'ipqualityscore',
-        'enabled': lambda: bool(KEYS['ipqualityscore']),
-        'call': lambda ip: requests.get(
-            f'https://ipqualityscore.com/api/json/ip/{KEYS["ipqualityscore"]}/{ip}',
-            timeout=10
-        ),
-        'parse': parse_ipqualityscore,
-        'quota_status': {429},
-        'quota_keywords': {'limit', 'quota', 'exceeded', 'monthly'},
     },
 ]
 
