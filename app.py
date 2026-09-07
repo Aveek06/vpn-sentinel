@@ -603,25 +603,12 @@ def check_ips():
 
     order = {ip: i for i, ip in enumerate(ips)}
     results: list = [None] * len(ips)
-    covered: dict[str, dict] = {}
 
-    # Phase 1 — batch-capable providers (fewer HTTP calls, same quota per IP)
-    for batch_fn in (_batch_proxycheck, _batch_ipapiis, _batch_iplogs):
-        if len(covered) == len(ips):
-            break
-        uncovered = [ip for ip in ips if ip not in covered]
-        covered.update(batch_fn(uncovered))
-
-    # Phase 2 — individual fetch_one for IPs not yet covered
-    remaining = [ip for ip in ips if ip not in covered]
     with ThreadPoolExecutor(max_workers=10) as ex:
-        futures = {ex.submit(fetch_one, ip): ip for ip in remaining}
+        futures = {ex.submit(fetch_one, ip): ip for ip in ips}
         for f in as_completed(futures):
             r = f.result()
-            covered[r['ip']] = r
-
-    for ip, r in covered.items():
-        results[order[ip]] = r
+            results[order[r['ip']]] = r
 
     return jsonify(results)
 
