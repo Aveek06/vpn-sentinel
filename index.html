@@ -43,6 +43,7 @@
     }
 
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    [hidden] { display: none !important; }
 
     body {
       background: var(--bg);
@@ -820,7 +821,11 @@
       document.getElementById('status-body').innerHTML =
         '<p style="font-size:0.7rem;color:var(--muted)">Loading…</p>';
       try {
-        const res = await fetch('/api/status');
+        const ctrl = new AbortController();
+        const timer = setTimeout(() => ctrl.abort(), 6000);
+        const res = await fetch('/api/status', { signal: ctrl.signal });
+        clearTimeout(timer);
+        if (!res.ok) throw new Error(`Server returned ${res.status} — deploy may still be in progress`);
         const data = await res.json();
         const STATE = {
           active:    { dot: 'dot-active',    label: 'Active' },
