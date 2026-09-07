@@ -398,6 +398,29 @@ def index():
     return send_from_directory(BASE_DIR, 'index.html')
 
 
+@app.route('/api/status')
+def status():
+    rows = []
+    for p in PROVIDERS:
+        name = p['name']
+        has_key = p['enabled']()
+        is_exhausted = name in exhausted
+        if is_exhausted:
+            state = 'exhausted'
+        elif not has_key:
+            state = 'no_key'
+        else:
+            state = 'active'
+        rows.append({'name': name, 'state': state})
+    return jsonify({'providers': rows, 'exhausted': list(exhausted)})
+
+
+@app.route('/api/reset', methods=['POST'])
+def reset_exhausted():
+    exhausted.clear()
+    return jsonify({'ok': True, 'message': 'Exhausted set cleared'})
+
+
 @app.route('/api/check', methods=['POST'])
 def check_ips():
     data = request.get_json(force=True, silent=True) or {}
