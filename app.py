@@ -335,6 +335,10 @@ SECONDARY_PROVIDERS = [
     },
 ]
 
+def _is_flagged(r):
+    return any(r.get(k) for k in ('vpn', 'proxy', 'tor', 'relay'))
+
+
 # Round-robin state for secondary provider selection
 _rr_lock = threading.Lock()
 _rr_index = [0]
@@ -419,16 +423,16 @@ def fetch_one(ip):
                 # Unexpected format for this specific IP — skip provider for
                 # this IP only; do NOT exhaust globally
                 continue
-            # Double-check clean results against a secondary provider,
-            # but only if at least one secondary is currently available.
-            if not any([result.get('vpn'), result.get('proxy'),
-                        result.get('tor'), result.get('relay')]) and any(
-                    s['name'] not in exhausted and s['enabled']()
-                    for s in SECONDARY_PROVIDERS):
-                secondary = _double_check(ip)
-                if secondary and any([secondary.get('vpn'), secondary.get('proxy'),
-                                      secondary.get('tor'), secondary.get('relay')]):
-                    # Secondary caught a threat the primary missed.
+            # Double-check clean results against a secondary provider. The source
+            # records what happened: "<primary> → <secondary>" (caught a miss),
+            # "<primary> ✓ <secondary>" (confirmed clean), or "<primary> (unverified)"
+            # when no secondary was available or none answered.
+            if not _is_flagged(result):
+                secondary = None
+                if any(s['name'] not in exhausted and s['enabled']()
+                       for s in SECONDARY_PROVIDERS):
+                    secondary = _double_check(ip)
+                if secondary and _is_flagged(secondary):
                     # Keep primary's location data (usually richer) when available.
                     if result['country'] != '—':
                         secondary['country'] = result['country']
@@ -436,6 +440,10 @@ def fetch_one(ip):
                         secondary['isp']     = result['isp']
                     secondary['source'] = f"{result['source']} → {secondary['source']}"
                     return secondary
+                if secondary:
+                    result['source'] = f"{result['source']} ✓ {secondary['source']}"
+                else:
+                    result['source'] = f"{result['source']} (unverified)"
             return result
         except requests.RequestException:
             continue       # network error, try next provider
