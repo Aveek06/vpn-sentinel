@@ -149,6 +149,15 @@
       text-align: right;
     }
 
+    .range-note {
+      font-size: 0.66rem;
+      line-height: 1.7;
+      color: var(--text);
+      margin: -1rem 0 1.75rem;
+      text-align: right;
+    }
+    .range-note .range-err { color: #FF1500; }
+
     /* PROGRESS */
     .prog-wrap {
       border: 3px solid var(--border);
@@ -496,11 +505,12 @@
 
   <div class="input-block">
     <textarea id="ip-input" spellcheck="false"
-      placeholder="Paste IPs — one per line or comma-separated&#10;&#10;1.1.1.1&#10;8.8.8.8, 104.28.0.1&#10;2606:4700:4700::1111"></textarea>
+      placeholder="Paste IPs — one per line or comma-separated&#10;&#10;1.1.1.1&#10;8.8.8.8, 104.28.0.1&#10;2606:4700:4700::1111&#10;203.0.113.0/24"></textarea>
     <button class="scan-btn" id="scan-btn" onclick="runScan()">SCAN</button>
   </div>
 
-  <p class="hint">Ctrl + Enter to scan &nbsp;·&nbsp; IPv4 and IPv6 supported</p>
+  <p class="hint">Ctrl + Enter to scan &nbsp;·&nbsp; IPv4 and IPv6 supported &nbsp;·&nbsp; IPv4 ranges up to /22</p>
+  <p class="range-note" id="range-note" hidden></p>
 
   <div class="prog-wrap" id="prog-wrap">
     <div class="prog-fill" id="prog-fill"></div>
@@ -565,12 +575,63 @@
     let scanning = false;
     let allResults = [];
 
-    function parseIPs(raw) {
-      return [...new Set(
-        raw.split(/[\n,\s]+/)
-           .map(s => s.trim())
-           .filter(s => s.length > 2 && /^[0-9a-fA-F.:]+$/.test(s))
-      )];
+    // Largest IPv4 range we expand: /22 = 1,024 addresses
+    const CIDR_MIN_PREFIX = 22;
+
+    // Expand an IPv4 CIDR into host addresses. Returns { ips } or { error }.
+    function expandCidr(token) {
+      const m = token.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})\/(\d{1,2})$/);
+      if (!m) {
+        return { error: token.includes(':')
+          ? 'IPv6 ranges are not supported'
+          : 'not a valid IPv4 range' };
+      }
+      const octets = m.slice(1, 5).map(Number);
+      const prefix = Number(m[5]);
+      if (octets.some(o => o > 255) || prefix > 32) return { error: 'not a valid IPv4 range' };
+      if (prefix < CIDR_MIN_PREFIX) {
+        return { error: `larger than /${CIDR_MIN_PREFIX} (max ${(2 ** (32 - CIDR_MIN_PREFIX)).toLocaleString()} addresses)` };
+      }
+      const ipInt = octets.reduce((acc, o) => acc * 256 + o, 0);
+      const size  = 2 ** (32 - prefix);
+      const base  = ipInt - (ipInt % size);          // network address
+      // /30 and larger have a network and broadcast address; /31 and /32 do not
+      const first = prefix <= 30 ? base + 1 : base;
+      const last  = prefix <= 30 ? base + size - 2 : base + size - 1;
+      const ips = [];
+      for (let n = first; n <= last; n++) {
+        ips.push([n >>> 24, (n >>> 16) & 255, (n >>> 8) & 255, n & 255].join('.'));
+      }
+      return { ips };
+    }
+
+    // Split pasted text into unique IPs, expanding IPv4 CIDR ranges.
+    function parseInput(raw) {
+      const ips = [], ranges = [], rejected = [];
+      for (const tok of raw.split(/[\n,\s]+/).map(s => s.trim())) {
+        if (tok.includes('/')) {
+          const res = expandCidr(tok);
+          if (res.error) rejected.push({ token: tok, reason: res.error });
+          else { ranges.push({ cidr: tok, count: res.ips.length }); ips.push(...res.ips); }
+        } else if (tok.length > 2 && /^[0-9a-fA-F.:]+$/.test(tok)) {
+          ips.push(tok);
+        }
+      }
+      return { ips: [...new Set(ips)], ranges, rejected };
+    }
+
+    function showRangeNote(ranges, rejected, total) {
+      const el = document.getElementById('range-note');
+      const parts = [];
+      if (ranges.length) {
+        const detail = ranges.map(r => `${esc(r.cidr)} → ${r.count.toLocaleString()}`).join(', ');
+        parts.push(`Expanded ${ranges.length} range${ranges.length > 1 ? 's' : ''} (${detail}). Scanning ${total.toLocaleString()} unique IPs.`);
+      }
+      if (rejected.length) {
+        parts.push(`<span class="range-err">Skipped: ${rejected.map(r => `${esc(r.token)} — ${esc(r.reason)}`).join('; ')}</span>`);
+      }
+      el.innerHTML = parts.join('<br>');
+      el.hidden = parts.length === 0;
     }
 
     async function checkBatch(ips) {
@@ -766,7 +827,8 @@
     async function runScan() {
       if (scanning) return;
       const raw = document.getElementById('ip-input').value;
-      const ips = parseIPs(raw);
+      const { ips, ranges, rejected } = parseInput(raw);
+      showRangeNote(ranges, rejected, ips.length);
 
       if (!ips.length) {
         const ta = document.getElementById('ip-input');
