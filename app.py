@@ -340,48 +340,85 @@ _rr_lock = threading.Lock()
 _rr_index = [0]
 
 
-def _double_check(ip):
-    """Re-verify a clean IP against the next available secondary provider."""
+# Scans with this many IPs or fewer check each clean IP against every available
+# secondary instead of one round-robin pick (quota use is negligible at this size)
+THOROUGH_MAX_IPS = 10
+
+_FLAG_KEYS = ('vpn', 'proxy', 'tor', 'relay')
+
+
+def _is_flagged(r):
+    return any(r.get(k) for k in _FLAG_KEYS)
+
+
+def _call_secondary(p, ip):
+    """Query one secondary provider. Returns a parsed result, or None if unavailable."""
+    name = p['name']
+    if name in exhausted or not p['enabled']():
+        return None
+    try:
+        r = p['call'](ip)
+        if r.status_code in p['quota_status']:
+            exhausted.add(name)
+            return None
+        if not r.ok:
+            body = r.json() if r.content else {}
+            msg = (body.get('message') or body.get('error') or '').lower()
+            if any(kw in msg for kw in p['quota_keywords']):
+                exhausted.add(name)
+            return None
+        try:
+            body = r.json()
+        except Exception:
+            return None
+        msg = str(body.get('message') or body.get('error') or body.get('status') or '').lower()
+        if any(kw in msg for kw in p['quota_keywords']):
+            exhausted.add(name)
+            return None
+        try:
+            return p['parse'](ip, body)
+        except (ValueError, KeyError):
+            return None
+    except requests.RequestException:
+        return None
+
+
+def _double_check(ip, thorough=False):
+    """Re-verify a clean IP against secondary providers.
+
+    Default: the next available provider in round-robin order (first one that answers).
+    thorough=True: every available provider; flags from all that flagged the IP are
+    merged and their sources joined with ' + '.
+    Returns a result dict, or None if no secondary answered.
+    """
     n = len(SECONDARY_PROVIDERS)
     if n == 0:
         return None
     with _rr_lock:
         start = _rr_index[0]
         _rr_index[0] = (start + 1) % n
+    answered = []
     for offset in range(n):
-        p = SECONDARY_PROVIDERS[(start + offset) % n]
-        name = p['name']
-        if name in exhausted or not p['enabled']():
+        res = _call_secondary(SECONDARY_PROVIDERS[(start + offset) % n], ip)
+        if res is None:
             continue
-        try:
-            r = p['call'](ip)
-            if r.status_code in p['quota_status']:
-                exhausted.add(name)
-                continue
-            if not r.ok:
-                body = r.json() if r.content else {}
-                msg = (body.get('message') or body.get('error') or '').lower()
-                if any(kw in msg for kw in p['quota_keywords']):
-                    exhausted.add(name)
-                continue
-            try:
-                body = r.json()
-            except Exception:
-                continue
-            msg = str(body.get('message') or body.get('error') or body.get('status') or '').lower()
-            if any(kw in msg for kw in p['quota_keywords']):
-                exhausted.add(name)
-                continue
-            try:
-                return p['parse'](ip, body)
-            except (ValueError, KeyError):
-                continue
-        except requests.RequestException:
-            continue
-    return None
+        if not thorough:
+            return res
+        answered.append(res)
+    if not answered:
+        return None
+    flagged = [r for r in answered if _is_flagged(r)]
+    if not flagged:
+        return answered[0]
+    merged = dict(flagged[0])
+    for r in flagged[1:]:
+        for k in _FLAG_KEYS:
+            merged[k] = merged[k] or r[k]
+    merged['source'] = ' + '.join(sorted(r['source'] for r in flagged))
+    return merged
 
 
-def fetch_one(ip):
+def fetch_one(ip, thorough=False):
     _maybe_reset_exhausted()
     if ip in KNOWN_CLEAN:
         return {
@@ -425,9 +462,8 @@ def fetch_one(ip):
                         result.get('tor'), result.get('relay')]) and any(
                     s['name'] not in exhausted and s['enabled']()
                     for s in SECONDARY_PROVIDERS):
-                secondary = _double_check(ip)
-                if secondary and any([secondary.get('vpn'), secondary.get('proxy'),
-                                      secondary.get('tor'), secondary.get('relay')]):
+                secondary = _double_check(ip, thorough)
+                if secondary and _is_flagged(secondary):
                     # Secondary caught a threat the primary missed.
                     # Keep primary's location data (usually richer) when available.
                     if result['country'] != '—':
@@ -600,7 +636,8 @@ def check_ips():
     results: list = [None] * len(ips)
 
     with ThreadPoolExecutor(max_workers=10) as ex:
-        futures = {ex.submit(fetch_one, ip): ip for ip in ips}
+        thorough = len(ips) <= THOROUGH_MAX_IPS
+        futures = {ex.submit(fetch_one, ip, thorough): ip for ip in ips}
         for f in as_completed(futures):
             r = f.result()
             results[order[r['ip']]] = r
