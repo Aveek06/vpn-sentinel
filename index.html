@@ -634,7 +634,9 @@
       el.hidden = parts.length === 0;
     }
 
-    async function checkBatch(ips) {
+    // Retry a failed batch twice (server may be waking up or briefly overloaded).
+    // A batch that still fails is returned as ERROR rows — never as clean results.
+    async function checkBatch(ips, attempt = 0) {
       try {
         const r = await fetch('/api/check', {
           method: 'POST',
@@ -642,13 +644,21 @@
           body: JSON.stringify({ ips }),
         });
         if (!r.ok) {
-          const msg = await r.text().catch(() => `HTTP ${r.status}`);
-          throw new Error(msg);
+          const body = await r.text().catch(() => '');
+          // Non-empty message is required: an empty error string is falsy and would render as CLEAN
+          throw new Error(`HTTP ${r.status}${body ? ': ' + body.slice(0, 120) : ''}`);
         }
-        return r.json();
+        const data = await r.json();
+        if (!Array.isArray(data)) throw new Error('Unexpected response from server');
+        return data;
       } catch (e) {
+        if (attempt < 2) {
+          await new Promise(res => setTimeout(res, 1500 * (attempt + 1)));
+          return checkBatch(ips, attempt + 1);
+        }
         return ips.map(ip => ({ ip, vpn: false, proxy: false, tor: false, relay: false,
-                                 country: '—', city: '—', isp: '—', error: e.message }));
+                                 country: '—', city: '—', isp: '—', source: '—',
+                                 error: e.message || 'Request failed' }));
       }
     }
 

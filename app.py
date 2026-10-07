@@ -291,7 +291,7 @@ SECONDARY_PROVIDERS = [
         'name': 'vpnapi',
         'enabled': lambda: bool(KEYS['vpnapi']),
         'call': lambda ip: requests.get(
-            f'https://vpnapi.io/api/{ip}?key={KEYS["vpnapi"]}', timeout=10),
+            f'https://vpnapi.io/api/{ip}?key={KEYS["vpnapi"]}', timeout=6),
         'parse': parse_vpnapi,
         'quota_status': {429, 403},
         'quota_keywords': {'limit', 'quota', 'exceeded', 'upgrade'},
@@ -300,7 +300,7 @@ SECONDARY_PROVIDERS = [
         'name': 'proxycheck',
         'enabled': lambda: bool(KEYS['proxycheck']),
         'call': lambda ip: requests.get(
-            f'https://proxycheck.io/v3/{ip}?key={KEYS["proxycheck"]}', timeout=10),
+            f'https://proxycheck.io/v3/{ip}?key={KEYS["proxycheck"]}', timeout=6),
         'parse': parse_proxycheck,
         'quota_status': {429, 403},
         'quota_keywords': {'limit', 'quota', 'exceeded', 'upgrade'},
@@ -309,7 +309,7 @@ SECONDARY_PROVIDERS = [
         'name': 'ipapiis',
         'enabled': lambda: bool(KEYS['ipapiis']),
         'call': lambda ip: requests.get(
-            f'https://api.ipapi.is/?q={ip}&key={KEYS["ipapiis"]}', timeout=10),
+            f'https://api.ipapi.is/?q={ip}&key={KEYS["ipapiis"]}', timeout=6),
         'parse': parse_ipapiis,
         'quota_status': {429, 403},
         'quota_keywords': {'limit', 'quota', 'exceeded', 'upgrade'},
@@ -319,7 +319,7 @@ SECONDARY_PROVIDERS = [
         'name': 'iplocate',
         'enabled': lambda: True,   # no key required; 1,000 req/day free
         'call': lambda ip: requests.get(
-            f'https://iplocate.io/api/lookup/{ip}', timeout=10),
+            f'https://iplocate.io/api/lookup/{ip}', timeout=6),
         'parse': parse_iplocate,
         'quota_status': {429},
         'quota_keywords': {'limit', 'quota', 'exceeded'},
@@ -328,7 +328,7 @@ SECONDARY_PROVIDERS = [
         'name': 'iplogs',
         'enabled': lambda: True,   # no key required
         'call': lambda ip: requests.post(
-            'https://iplogs.com/v1/check', json={'ip': ip}, timeout=10),
+            'https://iplogs.com/v1/check', json={'ip': ip}, timeout=6),
         'parse': parse_iplogs,
         'quota_status': {429},
         'quota_keywords': {'limit', 'quota', 'exceeded'},
@@ -431,7 +431,10 @@ def fetch_one(ip):
                 secondary = None
                 if any(s['name'] not in exhausted and s['enabled']()
                        for s in SECONDARY_PROVIDERS):
-                    secondary = _double_check(ip)
+                    try:
+                        secondary = _double_check(ip)
+                    except Exception:
+                        secondary = None   # unexpected provider response — keep FindIP's verdict
                 if secondary and _is_flagged(secondary):
                     # Keep primary's location data (usually richer) when available.
                     if result['country'] != '—':
@@ -610,8 +613,16 @@ def check_ips():
     with ThreadPoolExecutor(max_workers=10) as ex:
         futures = {ex.submit(fetch_one, ip): ip for ip in ips}
         for f in as_completed(futures):
-            r = f.result()
-            results[order[r['ip']]] = r
+            ip = futures[f]
+            try:
+                r = f.result()
+            except Exception:
+                r = {
+                    'ip': ip, 'error': 'Internal error while checking this IP',
+                    'vpn': False, 'proxy': False, 'tor': False, 'relay': False,
+                    'country': '—', 'city': '—', 'isp': '—', 'source': '—',
+                }
+            results[order[ip]] = r
 
     return jsonify(results)
 
